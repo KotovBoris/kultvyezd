@@ -28,6 +28,7 @@ from .config import get_settings
 from .db import Session, engine, get_session, init_db
 from .documents import build_order_docx, build_order_pdf
 from .max_client import BOT_COMMANDS
+from .max_validate import is_fresh, validate_webapp_data
 from .models import (
     BotLinkCode,
     CultureEvent,
@@ -516,6 +517,27 @@ def parent_context(max_user_id: int = Query(..., description="MAX user_id род
 
 
 # ================================================================== demo-reset
+@app.post("/api/v1/max/validate-init-data", tags=["max"])
+def validate_init_data(payload: dict) -> dict:
+    """Серверная валидация стартовых параметров мини-приложения MAX (initData/WebAppData).
+
+    Тело: {"init_data": "<строка из window.WebApp.initData>"}.
+    Возвращает валидность подписи и разобранные данные пользователя/чата.
+
+    Алгоритм соответствует документации: https://dev.max.ru/docs/webapps/validation
+    """
+    init_data = (payload or {}).get("init_data", "")
+    if not settings.MAX_BOT_TOKEN:
+        return {"valid": False, "reason": "bot_token_not_configured"}
+    valid, fields = validate_webapp_data(init_data, settings.MAX_BOT_TOKEN)
+    return {
+        "valid": valid,
+        "fresh": is_fresh(fields.get("auth_date")),
+        "user": fields.get("user"),
+        "chat": fields.get("chat"),
+    }
+
+
 @app.post("/api/v1/admin/reset-demo", tags=["service"])
 def reset_demo(session: Session = Depends(get_session)) -> dict:
     """Сброс демонстрационного выезда: возвращает всех участников в статус «ожидает».

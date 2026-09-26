@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     MINIAPP_BASE_URL: str = "http://localhost:8080"
     # База, с которой генерируются абсолютные ссылки в API-ответах
     PUBLIC_BASE_URL: str = "http://localhost:8080"
+    # Требовать проверку подписи initData MAX Bridge для действий родителя.
+    # В демо-окружении выключено (проверяющий открывает mini-app по ссылке без подписи),
+    # в продакшене включается в одно значение.
+    MAX_VALIDATE_INIT_DATA: bool = False
     # Автосоздание схемы и сидирование демо-данных при старте
     AUTO_SEED: bool = True
     # Таймаут long polling к MAX, сек

@@ -221,6 +221,19 @@
 | SEC-6 |[NFR] Ошибки не раскрывают трейсбек | 4xx/5xx содержат `detail`, без стека Python |
 | SEC-7 |[NFR] Зависимости зафиксированы | `requirements.txt`/`package.json` с точными версиями |
 
+## 15a. Валидация данных MAX Bridge (initData)
+
+| ID | Требование | Ожидаемый результат |
+|---|---|---|
+| VAL-1 |[SEC] Корректная подпись initData принимается | `valid=true`; поля пользователя разобраны |
+| VAL-2 |[SEC] Подмена данных ⇒ невалидно | `valid=false` |
+| VAL-3 |[SEC] Чужой токен ⇒ невалидно | `valid=false` |
+| VAL-4 |[SEC] Отсутствие/дублирование `hash` ⇒ невалидно | `valid=false` |
+| VAL-5 |[SEC] Пустой ввод / пустой токен ⇒ невалидно | `valid=false` |
+| VAL-6 |[SEC] Разбор URL-фрагмента `#WebAppData=...` | `valid=true` |
+| VAL-7 |[SEC] Проверка «свежести» `auth_date` | старые данные ⇒ `fresh=false` |
+| VAL-8 |[HTTP] `POST /api/v1/max/validate-init-data` | 200; без токена `valid=false` |
+
 ## 16. Нефункциональные / Docker / стабильность
 
 | ID | Требование | Ожидаемый результат |
