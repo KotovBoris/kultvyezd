@@ -40,12 +40,15 @@
 
 | Набор | Тестов | Статус |
 |---|---|---|
-| Backend (pytest) | 139 | ✅ |
+| Backend (pytest) | 147 | ✅ |
 | Frontend (vitest) | 31 | ✅ |
 | Агентный E2E (эмулятор MAX) | 15 | ✅ |
 | Docker-стек по HTTP | 18 | ✅ |
 | UI в браузере (Playwright, desktop + mobile) | 16 | ✅ |
-| **Итого** | **219 проверок** | ✅ |
+| **Итого** | **227 проверок** | ✅ |
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) прогоняет backend, frontend и агентный E2E
+на каждый push и pull request — воспроизводимость подтверждается автоматически.
 
 ## Просмотр и итерация интерфейса
 
