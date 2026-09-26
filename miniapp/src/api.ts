@@ -143,4 +143,44 @@ export const api = {
     `${BASE}/api/v1/excursions/${excursionId}/export-order?fmt=${fmt}`,
   linkCode: (studentId: number) =>
     req<{ code: string; deep_link: string }>(`/api/v1/students/${studentId}/link-code`, { method: "POST" }),
+
+  /** Контекст родителя по его MAX user_id (после привязки к боту). */
+  parentContext: (maxUserId: number) =>
+    req<ParentContext>(`/api/v1/parent/context?max_user_id=${maxUserId}`),
+
+  /** Сброс демонстрационного выезда (для повторного прогона сценария). */
+  resetDemo: () => req<{ excursion_id: number; reset_participants: number }>(
+    "/api/v1/admin/reset-demo", { method: "POST" }),
 };
+
+export interface ParentChild {
+  student_id: number;
+  student_name: string;
+  parent_name: string;
+  parent_role: string;
+  excursions: Array<{
+    excursion_id: number;
+    title: string;
+    location_name: string;
+    event_date: string | null;
+    gathering_time: string | null;
+    return_time: string | null;
+    deadline: string | null;
+    ticket_price: number;
+    ticket_sale_url: string;
+    is_pushkin_card: boolean;
+    status: string;
+    traffic_light: "GREEN" | "YELLOW" | "GREY" | "RED";
+    consent_status: string;
+    ticket_status: string;
+    rejection_reason: string | null;
+    signed_by_name: string | null;
+    signed_at: string | null;
+  }>;
+}
+
+export interface ParentContext {
+  max_user_id: number;
+  children: ParentChild[];
+  found: boolean;
+}

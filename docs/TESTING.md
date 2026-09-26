@@ -34,16 +34,34 @@
 | UI и клики | vitest | `miniapp/src/test/components.test.tsx`, `app.test.tsx` | вкладки, каталог, создание выезда, «Светофор», экран родителя, скачивание |
 | Сквозной бот | python | `scripts/e2e_agent.py` | эмулятор MAX: приветствие, нажатие кнопки, напоминания, приказ, webhook |
 | Сквозной стек | python | `scripts/e2e_docker.py` | `docker compose up` + прохождение сценария по HTTP |
+| UI в браузере | Playwright | `ui-e2e/tests/ui.spec.ts` | клики по всем экранам, вьюпорты, скриншоты, адаптив |
 
 ## Номера
 
 | Набор | Тестов | Статус |
 |---|---|---|
-| Backend (pytest) | 131 | ✅ |
-| Frontend (vitest) | 29 | ✅ |
+| Backend (pytest) | 137 | ✅ |
+| Frontend (vitest) | 31 | ✅ |
 | Агентный E2E (эмулятор MAX) | 14 | ✅ |
 | Docker-стек по HTTP | 18 | ✅ |
-| **Итого** | **192 проверки** | ✅ |
+| UI в браузере (Playwright, desktop + mobile) | 16 | ✅ |
+| **Итого** | **216 проверок** | ✅ |
+
+## Просмотр и итерация интерфейса
+
+UI можно смотреть и отлаживать без мессенджера MAX:
+
+```bash
+docker compose up -d --build          # поднять стек
+cd ui-e2e && npm install               # один раз
+npx playwright install chromium        # один раз
+BASE_URL=http://localhost:8080 npx playwright codegen   # интерактивно «кликать» и смотреть
+npx playwright test --project=desktop  # прогнать + записать скриншоты в ui-e2e/screenshots/
+```
+
+Скриншоты ключевых экранов лежат в [`docs/screenshots/`](screenshots/) и используются
+в презентации. Внутри мини-приложения (без MAX) работает **режим просмотра**: переключение
+на экран любого родителя и сброс демо-данных (кнопка «Сбросить демо-данные»).
 
 ## Сквозной сценарий (эмулятор MAX), `scripts/e2e_agent.py`
 

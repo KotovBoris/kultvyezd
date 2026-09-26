@@ -498,6 +498,43 @@ def create_link_code(student_id: int, session: Session = Depends(get_session)) -
     return LinkCodeOut(code=code, deep_link=deep_link, student_id=student_id)
 
 
+@app.get("/api/v1/parent/context", tags=["consent"])
+def parent_context(max_user_id: int = Query(..., description="MAX user_id родителя (после привязки)"),
+                   session: Session = Depends(get_session)) -> dict:
+    """Контекст родителя по его MAX user_id: дети и активные выезды со статусами.
+
+    Позволяет открывать экран родителя без ручной подстановки student_id в ссылку —
+    так это работает в реальном сценарии MAX (родитель просто написал боту).
+    """
+    children = services.parent_context(session, max_user_id)
+    return {"max_user_id": max_user_id, "children": children, "found": bool(children)}
+
+
+# ================================================================== demo-reset
+@app.post("/api/v1/admin/reset-demo", tags=["service"])
+def reset_demo(session: Session = Depends(get_session)) -> dict:
+    """Сброс демонстрационного выезда: возвращает всех участников в статус «ожидает».
+
+    Нужно, чтобы проверяющий мог прогнать сценарий много раз подряд на чистом состоянии.
+    """
+    exc = session.exec(select(Excursion)).first()
+    if not exc:
+        raise HTTPException(status_code=404, detail="Демо-выезд не создан")
+    changed = 0
+    for p in session.exec(select(ExcursionParticipant).where(ExcursionParticipant.excursion_id == exc.id)).all():
+        p.consent_status = "PENDING"
+        p.ticket_status = TicketStatus.WAITING_PAYMENT if (exc.ticket_price or 0) > 0 else TicketStatus.NOT_REQUIRED
+        p.signed_at = None
+        p.signed_by_name = None
+        p.signed_by_phone = None
+        p.rejection_reason = None
+        p.ticket_number = None
+        session.add(p)
+        changed += 1
+    session.commit()
+    return {"excursion_id": exc.id, "reset_participants": changed}
+
+
 # ================================================================== webhook MAX
 @app.post("/webhook/max", tags=["max"])
 async def max_webhook(request: Request) -> JSONResponse:

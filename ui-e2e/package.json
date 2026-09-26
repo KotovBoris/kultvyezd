@@ -1,0 +1,15 @@
+{
+  "name": "kultvyezd-ui-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "UI-харнесс (Playwright): просмотр, скриншоты и проверка интерфейса mini-app",
+  "scripts": {
+    "shots": "playwright test --project=desktop",
+    "test": "playwright test",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1"
+  }
+}

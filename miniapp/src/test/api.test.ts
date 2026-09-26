@@ -25,6 +25,21 @@ describe("api client", () => {
     expect((fetch as any).mock.calls[0][0]).toBe("/healthz");
   });
 
+  it("parentContext: GET /api/v1/parent/context с max_user_id", async () => {
+    (fetch as any).mockResolvedValue(jsonResponse({ max_user_id: 42, children: [], found: false }));
+    await api.parentContext(42);
+    expect((fetch as any).mock.calls[0][0]).toBe("/api/v1/parent/context?max_user_id=42");
+  });
+
+  it("resetDemo: POST /api/v1/admin/reset-demo", async () => {
+    (fetch as any).mockResolvedValue(jsonResponse({ excursion_id: 1, reset_participants: 24 }));
+    const r = await api.resetDemo();
+    const [url, init] = (fetch as any).mock.calls[0];
+    expect(url).toBe("/api/v1/admin/reset-demo");
+    expect(init.method).toBe("POST");
+    expect(r.reset_participants).toBe(24);
+  });
+
   it("events: собирает query-параметры и пропускает пустые", async () => {
     (fetch as any).mockResolvedValue(jsonResponse([]));
     await api.events({ city: "Казань", pushkin: true, age: "" });

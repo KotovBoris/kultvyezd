@@ -310,12 +310,27 @@ docker compose restart backend     # перезапуск только ядра
 
 | Набор | Инструмент | Тестов |
 |---|---|---|
-| Backend: все ручки, бизнес-правила, бот, безопасность | pytest | 131 |
-| Адверсариальный (краевые, параллелизм, инъекции) | pytest | 18 (внутри 131) |
-| Frontend: MAX Bridge, REST-клиент, UI-клики | vitest + testing-library | 29 |
+| Backend: все ручки, бизнес-правила, бот, безопасность | pytest | 137 |
+| Адверсариальный (краевые, параллелизм, инъекции) | pytest | 18 (внутри 137) |
+| Frontend: MAX Bridge, REST-клиент, UI-клики | vitest + testing-library | 31 |
 | Сквозной бот через эмулятор протокола MAX | python | 14 |
 | Сквозной стек в Docker по HTTP | python | 18 |
-| **Итого** | | **192** |
+| UI в браузере (клики, скриншоты, адаптив) | Playwright | 16 |
+| **Итого** | | **216** |
+
+### Просмотр интерфейса без MAX
+
+```bash
+docker compose up -d --build
+# открыть http://localhost:8080 — доступен «Режим просмотра»:
+#   • переключение на экран любого родителя
+#   • сброс демо-данных для повторного прогона
+# записать скриншоты всех экранов:
+cd ui-e2e && npm install && npx playwright install chromium && npx playwright test
+```
+
+Готовые скриншоты — в [`docs/screenshots/`](docs/screenshots/). Продуктовые исследования
+(данные для обоснования) — в [`docs/PRODUCT_RESEARCH.md`](docs/PRODUCT_RESEARCH.md).
 
 Найденные критичным прогоном дефекты и их исправления перечислены в
 [`docs/TESTING.md`](docs/TESTING.md#найденные-при-критичном-прогоне-дефекты-исправлены).

@@ -197,6 +197,60 @@ def remind_targets(session: Session, excursion: Excursion) -> list[dict]:
     return targets
 
 
+def parent_context(session: Session, max_user_id: int) -> list[dict]:
+    """Контекст законного представителя по его MAX user_id (после привязки к боту).
+
+    Возвращает список детей родителя и по каждому — активные выезды с текущим
+    статусом согласия/билета. Это позволяет открывать экран родителя без
+    ручной передачи student_id в ссылке (реалистичный продакшн-сценарий).
+    """
+    parents = session.exec(select(ParentContact).where(ParentContact.max_user_id == max_user_id)).all()
+    result: list[dict] = []
+    for parent in parents:
+        student = session.get(Student, parent.student_id)
+        if not student:
+            continue
+        excursions = session.exec(
+            select(Excursion).where(Excursion.class_id == student.class_id)
+        ).all()
+        items = []
+        for exc in excursions:
+            p = get_participant(session, exc.id, student.id)
+            if not p:
+                continue
+            items.append(
+                {
+                    "excursion_id": exc.id,
+                    "title": exc.title,
+                    "location_name": exc.location_name,
+                    "event_date": exc.event_date,
+                    "gathering_time": exc.gathering_time.strftime("%H:%M") if exc.gathering_time else None,
+                    "return_time": exc.return_time.strftime("%H:%M") if exc.return_time else None,
+                    "deadline": exc.deadline,
+                    "ticket_price": exc.ticket_price,
+                    "ticket_sale_url": exc.ticket_sale_url,
+                    "is_pushkin_card": exc.is_pushkin_card,
+                    "status": exc.status,
+                    "traffic_light": compute_traffic_light(p).value,
+                    "consent_status": p.consent_status.value,
+                    "ticket_status": p.ticket_status.value,
+                    "rejection_reason": p.rejection_reason,
+                    "signed_by_name": p.signed_by_name,
+                    "signed_at": p.signed_at,
+                }
+            )
+        result.append(
+            {
+                "student_id": student.id,
+                "student_name": student.full_name,
+                "parent_name": parent.full_name,
+                "parent_role": parent.role,
+                "excursions": items,
+            }
+        )
+    return result
+
+
 def reminder_text(excursion: Excursion, student_name: str, tl: TrafficLight) -> str:
     if tl == TrafficLight.GREY:
         return (

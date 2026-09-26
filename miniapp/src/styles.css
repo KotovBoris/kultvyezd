@@ -94,3 +94,25 @@ table.kv-table th { color: var(--kv-muted); font-weight: 600; font-size: 12px; }
 
 .kv-footer-note { font-size: 11px; color: var(--kv-muted); margin-top: 18px; line-height: 1.5; }
 .kv-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+/* Скелетон загрузки */
+.kv-skeleton { display: flex; flex-direction: column; gap: 10px; }
+.kv-skel-line { height: 12px; border-radius: 6px; background: linear-gradient(90deg, #ececf3, #f6f6fb, #ececf3); background-size: 200% 100%; animation: kv-shimmer 1.2s infinite; }
+.kv-skel-line.w40 { width: 40%; }
+.kv-skel-line.w60 { width: 60%; }
+.kv-skel-line.w80 { width: 80%; }
+.kv-skel-line.w90 { width: 90%; }
+.kv-skel-bar { height: 10px; border-radius: 999px; background: linear-gradient(90deg, #ececf3, #f6f6fb, #ececf3); background-size: 200% 100%; animation: kv-shimmer 1.2s infinite; }
+@keyframes kv-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Панель просмотра вне MAX */
+.kv-viewpanel { border-style: dashed; border-color: var(--kv-accent); }
+.kv-tab { border: none; font-family: inherit; }
+
+/* Доступность: ссылки-кнопки наследуют вид кнопки */
+a.kv-btn { text-decoration: none; display: inline-flex; align-items: center; }
+
+@media (max-width: 420px) {
+  .kv-app { padding: 12px 12px 80px; }
+  table.kv-table th, table.kv-table td { padding: 6px 4px; }
+}

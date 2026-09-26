@@ -103,20 +103,38 @@ class BotService:
             return
 
     async def _send_trips(self, chat_id: int | None, user_id: int | None) -> None:
+        """Показывает родителю его детей и статусы по активным выездам (по max_user_id)."""
         with Session(engine) as session:
-            parent = session.exec(select(ParentContact).where(ParentContact.max_user_id == user_id)).first()
-            if not parent:
-                await self.client.send_message(
-                    chat_id=chat_id, user_id=None if chat_id else user_id,
-                    text="Чтобы получать напоминания, привяжитесь к ребёнку в мини-приложении.",
-                )
-                return
-            student = session.get(Student, parent.student_id)
+            children = services.parent_context(session, user_id) if user_id else []
+        if not children:
             await self.client.send_message(
                 chat_id=chat_id, user_id=None if chat_id else user_id,
-                text=f"👤 {student.full_name if student else ''}\nАктивные выезды доступны в приложении.",
+                text=(
+                    "Чтобы получать напоминания, привяжитесь к ребёнку в мини-приложении.\n"
+                    "Откройте приложение и нажмите «Привязать бота для напоминаний»."
+                ),
                 attachments=[inline_keyboard([[open_app_button("Открыть приложение", settings.MAX_BOT_USERNAME)]])],
             )
+            return
+
+        ICON = {"GREEN": "🟢", "YELLOW": "🟡", "GREY": "⚪", "RED": "🔴"}
+        LABEL = {"GREEN": "готов к поездке", "YELLOW": "ждём оплату билета",
+                 "GREY": "нужно подтвердить участие", "RED": "зафиксирован отказ"}
+        lines = []
+        for child in children:
+            lines.append(f"👤 {child['student_name']}")
+            if not child["excursions"]:
+                lines.append("   • активных выездов нет")
+            for e in child["excursions"]:
+                mark = ICON.get(e["traffic_light"], "•")
+                when = e["event_date"] or "дата уточняется"
+                lines.append(f"   {mark} {e['title']} — {when} ({LABEL.get(e['traffic_light'], '')})")
+        text = "Мои выезды:\n\n" + "\n".join(lines)
+        await self.client.send_message(
+            chat_id=chat_id, user_id=None if chat_id else user_id,
+            text=text,
+            attachments=[inline_keyboard([[open_app_button("Открыть приложение", settings.MAX_BOT_USERNAME)]])],
+        )
 
     async def _on_callback(self, update: dict) -> None:
         callback = update.get("callback") or {}

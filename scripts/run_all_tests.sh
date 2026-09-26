@@ -34,7 +34,7 @@ run "Frontend tests (vitest: MAX Bridge, api, UI-клики)" \
 run "Agent E2E (эмулятор MAX: бот, callbacks, документы)" \
   ./backend/.venv313/bin/python scripts/e2e_agent.py
 
-# 4. Docker-стек по HTTP
+# 4. Docker-стек по HTTP + UI-харнесс (Playwright)
 if [[ "$FAST" == "0" ]]; then
   run "Docker stack (compose up + HTTP сценарий)" bash -lc '
     docker compose up -d --build >/dev/null 2>&1
@@ -42,7 +42,13 @@ if [[ "$FAST" == "0" ]]; then
       code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/healthz || true)
       [ "$code" = "200" ] && break; sleep 2
     done
+    curl -s -X POST http://localhost:8080/api/v1/admin/reset-demo >/dev/null
     python3 scripts/e2e_docker.py http://localhost:8080'
+
+  run "UI-харнесс (Playwright: клики + скриншоты)" bash -lc '
+    source "$HOME/.nvm/nvm.sh" 2>/dev/null; nvm use 20 >/dev/null 2>&1
+    cd ui-e2e && { [ -d node_modules ] || npm install --no-audit --no-fund; }
+    npx playwright test'
 fi
 
 echo ""

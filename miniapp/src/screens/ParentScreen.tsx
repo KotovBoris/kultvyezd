@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Excursion, type ParticipantRow } from "../api";
-import { downloadFile, haptic, openLink, requestContact } from "../max";
+import { downloadFile, haptic, isInsideMax, openLink, requestContact } from "../max";
+import { setSession } from "../store";
 
 /**
  * Экран законного представителя (UC-4/UC-5).
@@ -9,9 +10,11 @@ import { downloadFile, haptic, openLink, requestContact } from "../max";
  */
 export default function ParentScreen({
   studentId,
+  studentName,
   excursions,
 }: {
   studentId: number;
+  studentName?: string;
   excursions: Excursion[];
 }) {
   const [rows, setRows] = useState<Record<number, ParticipantRow>>({});
@@ -87,13 +90,24 @@ export default function ParentScreen({
     <>
       <div className="kv-card">
         <h3>Мои выезды</h3>
+        {studentName && <p className="kv-muted">Ребёнок: <b>{studentName}</b></p>}
         <p className="kv-muted">
           Подтвердите участие ребёнка. Согласие фиксируется простой электронной подписью (дата, время, ID).
           Оплата билета — напрямую в кассу учреждения культуры.
         </p>
-        <button className="kv-btn ghost" onClick={bindBot}>
-          Привязать бота для напоминаний
-        </button>
+        <div className="kv-actions">
+          <button className="kv-btn ghost" onClick={bindBot}>
+            Привязать бота для напоминаний
+          </button>
+          {!isInsideMax() && (
+            <button
+              className="kv-btn ghost"
+              onClick={() => setSession({ role: "teacher", studentId: null, resolvedStudentId: null })}
+            >
+              ← Вернуться в режим учителя
+            </button>
+          )}
+        </div>
       </div>
 
       {msg && <div className="kv-alert info">{msg}</div>}

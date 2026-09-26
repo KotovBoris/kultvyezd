@@ -13,6 +13,7 @@ vi.mock("../max", () => ({
   deviceName: () => "browser",
   maxVersion: () => "test",
   startParam: () => null,
+  currentUserId: () => null,
 }));
 
 const apiMock = vi.hoisted(() => ({
@@ -24,6 +25,8 @@ const apiMock = vi.hoisted(() => ({
   meta: vi.fn(),
   remind: vi.fn(),
   generateOrder: vi.fn(),
+  parentContext: vi.fn(async () => ({ max_user_id: 0, children: [], found: false })),
+  resetDemo: vi.fn(async () => ({ excursion_id: 1, reset_participants: 0 })),
   exportOrderUrl: (id: number, fmt: string) => `/x/${id}/${fmt}`,
 }));
 vi.mock("../api", () => ({ api: apiMock }));
