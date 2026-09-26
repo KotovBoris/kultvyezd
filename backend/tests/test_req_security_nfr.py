@@ -1,8 +1,14 @@
-"""Требования SEC-*, NFR-* (docs/REQUIREMENTS.md)."""
+"""Требования SEC-*, NFR-* (docs/REQUIREMENTS.md).
+
+Важно: эти тесты НЕ содержат фрагментов реального секрета — иначе проверка «секрета нет»
+сама бы его занесла в репозиторий. Проверяем свойства: .env не под контролем git и ни в одном
+отслеживаемом файле нет непустого значения MAX_BOT_TOKEN.
+"""
 from __future__ import annotations
 
 import os
 import re
+import subprocess
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -12,28 +18,32 @@ from conftest import make_excursion
 REPO = Path(__file__).resolve().parents[2]  # .../kultvyezd
 
 
-def test_SEC_1_no_token_in_repo() -> None:
-    """Токена нет в исходниках и данных. Локальный .env (gitignored) и кэш исключаются."""
-    skip_names = {".env", ".env.local"}
-    skip_dirs = {".git", "node_modules", "__pycache__", ".pytest_cache", ".venv", ".venv313", "data"}
-    this_file = Path(__file__).name
-    offending = []
-    for p in REPO.rglob("*"):
+def _tracked_files() -> list[str]:
+    out = subprocess.run(["git", "ls-files"], cwd=REPO, capture_output=True, text=True)
+    return [f for f in out.stdout.splitlines() if f]
+
+
+def test_SEC_1_env_not_tracked_and_no_token_values() -> None:
+    tracked = _tracked_files()
+    assert ".env" not in tracked, ".env не должен быть под контролем git"
+    offenders = []
+    for rel in tracked:
+        if Path(rel).name in {".env", ".env.local"}:
+            offenders.append(rel)
+            continue
+        p = REPO / rel
         if not p.is_file():
-            continue
-        if p.name in skip_names or this_file in str(p) or p.name == ".gitignore":
-            continue
-        if any(part in skip_dirs or ".venv" in part for part in p.parts):
-            continue
-        if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".pdf", ".ico", ".zip", ".whl", ".pyc"}:
             continue
         try:
             text = p.read_text(encoding="utf-8", errors="ignore")
         except Exception:  # noqa: BLE001
             continue
-        if "f9LHodD0cOJSRhoZ" in text:
-            offending.append(str(p.relative_to(REPO)))
-    assert not offending, f"токен найден в файлах: {offending}"
+        # строки вида MAX_BOT_TOKEN=<непустое> или OTHER_TOKEN=<непустое> в трекнутых файлах
+        for line in text.splitlines():
+            m = re.match(r"\s*[A-Z0-9_]*TOKEN\s*=\s*(\S+)", line)
+            if m and m.group(1).strip():
+                offenders.append(f"{rel}: {line.strip()[:40]}")
+    assert not offenders, f"секреты в отслеживаемых файлах: {offenders}"
 
 
 def test_SEC_2_env_ignored() -> None:
@@ -49,12 +59,17 @@ def test_SEC_3_env_example_without_secrets() -> None:
 
 
 def test_SEC_4_token_from_env_only() -> None:
-    # В исходниках не должно быть литералов токена — только чтение из настроек.
+    # В исходниках нет длинных литералов-токенов рядом с *TOKEN* — только чтение настроек.
+    hexish = re.compile(r"[A-Za-z0-9_\-]{40,}")
     for f in (REPO / "backend" / "app").rglob("*.py"):
-        text = f.read_text(encoding="utf-8")
-        assert "f9LHodD0cOJSRhoZ" not in text, f"токен в коде: {f}"
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if "TOKEN" in line and hexish.search(line) and "=" in line:
+                # допустимо: пустое/дефолтное значение, os.getenv, Settings-поле
+                if any(k in line for k in ("getenv", "Field", "Settings", '""', "': '", "=")):
+                    value = line.split("=", 1)[-1].strip()
+                    assert not hexish.match(value.strip(" \"'")), f"похоже на литерал токена: {f}:{line.strip()[:50]}"
     cfg = (REPO / "backend" / "app" / "config.py").read_text(encoding="utf-8")
-    assert "getenv" in cfg or "BaseSettings" in cfg
+    assert "BaseSettings" in cfg or "getenv" in cfg
 
 
 def test_SEC_5_mock_data_declared(client: TestClient) -> None:
