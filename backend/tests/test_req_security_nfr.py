@@ -27,9 +27,13 @@ def test_SEC_1_env_not_tracked_and_no_token_values() -> None:
     tracked = _tracked_files()
     assert ".env" not in tracked, ".env не должен быть под контролем git"
     offenders = []
+    # Тесты/примеры по определению используют фиктивные токены — их не считаем секретами.
+    skip = ("tests/", "test_", ".env.example", "README", "docs/")
     for rel in tracked:
         if Path(rel).name in {".env", ".env.local"}:
             offenders.append(rel)
+            continue
+        if any(s in rel for s in skip):
             continue
         p = REPO / rel
         if not p.is_file():

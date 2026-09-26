@@ -116,6 +116,9 @@ class ConsentRequest(BaseModel):
     parent_name: str = ""
     reason: str | None = None
     source: str = "miniapp"
+    # Стартовые параметры MAX Bridge (window.WebApp.initData). Проверяются только
+    # если включена настройка MAX_VALIDATE_INIT_DATA (в проде).
+    init_data: str | None = None
 
 
 class ConsentResponse(BaseModel):

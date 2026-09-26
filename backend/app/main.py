@@ -29,6 +29,19 @@ from .db import Session, engine, get_session, init_db
 from .documents import build_order_docx, build_order_pdf
 from .max_client import BOT_COMMANDS
 from .max_validate import is_fresh, validate_webapp_data
+
+
+def _require_valid_parent(init_data: str | None) -> None:
+    """Если включена проверка initData — действие родителя допускается только с валидной подписью.
+
+    В демо-режиме (MAX_VALIDATE_INIT_DATA=false) проверка пропускается, чтобы проверяющий
+    мог пройти сценарий без мессенджера.
+    """
+    if not settings.MAX_VALIDATE_INIT_DATA:
+        return
+    valid, _ = validate_webapp_data(init_data or "", settings.MAX_BOT_TOKEN)
+    if not valid:
+        raise HTTPException(status_code=401, detail="Недействительные данные мини-приложения (initData)")
 from .models import (
     BotLinkCode,
     CultureEvent,
@@ -389,6 +402,7 @@ def excursion_participants(excursion_id: int, session: Session = Depends(get_ses
 # ================================================================== согласия
 @app.post("/api/v1/excursions/{excursion_id}/consent", response_model=ConsentResponse, tags=["consent"])
 def post_consent(excursion_id: int, payload: ConsentRequest, session: Session = Depends(get_session)) -> ConsentResponse:
+    _require_valid_parent(payload.init_data)
     exc = session.get(Excursion, excursion_id)
     if not exc:
         raise HTTPException(status_code=404, detail="Выезд не найден")
