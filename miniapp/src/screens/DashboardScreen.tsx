@@ -53,7 +53,10 @@ export default function DashboardScreen({
     setBusy(true);
     try {
       const r = await api.generateOrder(excursionId);
-      setMsg(`Приказ сформирован (версия ${r.version}).`);
+      setMsg(
+        `Приказ сформирован (версия ${r.version}). ` +
+          `Если файл не скачался автоматически — нажмите ссылку «Скачать DOCX» ниже.`,
+      );
       downloadFile(api.exportOrderUrl(excursionId, "docx"), `Приказ_выезд_${excursionId}.docx`);
       haptic();
     } catch (e: any) {
@@ -62,6 +65,9 @@ export default function DashboardScreen({
       setBusy(false);
     }
   }
+
+  const docxUrl = api.exportOrderUrl(excursionId, "docx");
+  const pdfUrl = api.exportOrderUrl(excursionId, "pdf");
 
   return (
     <>
@@ -117,7 +123,7 @@ export default function DashboardScreen({
           </button>
           <button
             className="kv-btn ghost"
-            onClick={() => downloadFile(api.exportOrderUrl(excursionId, "pdf"), `Приказ_выезд_${excursionId}.pdf`)}
+            onClick={() => downloadFile(pdfUrl, `Приказ_выезд_${excursionId}.pdf`)}
           >
             Скачать PDF
           </button>
@@ -128,6 +134,15 @@ export default function DashboardScreen({
           )}
         </div>
         {msg && <div className="kv-alert info" style={{ marginTop: 10 }}>{msg}</div>}
+        {/* Прямые ссылки — надёжный запасной способ скачивания в любом окружении */}
+        <div className="kv-actions" style={{ marginTop: 8 }}>
+          <a className="kv-btn ghost" href={docxUrl} download>
+            ⬇ Скачать DOCX (прямая ссылка)
+          </a>
+          <a className="kv-btn ghost" href={pdfUrl} download>
+            ⬇ Скачать PDF (прямая ссылка)
+          </a>
+        </div>
       </div>
 
       <div className="kv-card">

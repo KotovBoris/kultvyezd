@@ -68,21 +68,27 @@ export function currentUserId(): number | null {
   return initDataUnsafe()?.user?.id ?? null;
 }
 
-/** Скачивание файла: нативно через MAX Bridge, иначе обычная ссылка. */
+/**
+ * Скачивание файла.
+ * ВАЖНО: нативный WebApp.downloadFile существует и в обычном браузере (библиотека
+ * MAX Bridge подключена всегда), но по документации MAX «в браузере метод не работает»
+ * — вызов молча ничего не делает. Поэтому используем его ТОЛЬКО внутри мессенджера,
+ * а в браузере — обычную ссылку с атрибутом download.
+ */
 export function downloadFile(url: string, fileName: string): void {
   const w = bridge();
-  if (w?.downloadFile) {
+  if (isInsideMax() && typeof w?.downloadFile === "function") {
     try {
       w.downloadFile(url, fileName);
       return;
     } catch {
-      /* fallthrough */
+      /* fallthrough — попробуем браузерный способ */
     }
   }
   const a = document.createElement("a");
   a.href = url;
   a.download = fileName;
-  a.target = "_blank";
+  a.rel = "noopener";
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -91,7 +97,7 @@ export function downloadFile(url: string, fileName: string): void {
 /** Открытие внешней ссылки (например, билетного шлюза музея). */
 export function openLink(url: string): void {
   const w = bridge();
-  if (w?.openLink) {
+  if (isInsideMax() && typeof w?.openLink === "function") {
     try {
       w.openLink(url);
       return;
@@ -99,7 +105,12 @@ export function openLink(url: string): void {
       /* fallthrough */
     }
   }
-  window.open(url, "_blank");
+  window.open(url, "_blank", "noopener");
+}
+
+/** Прямая HTTPS-ссылка на файл — используется как запасной вариант в интерфейсе. */
+export function fileUrl(url: string): string {
+  return url;
 }
 
 /** Запрос номера телефона у пользователя (для привязки родителя к ученику). */
