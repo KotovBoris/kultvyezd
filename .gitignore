@@ -1,0 +1,14 @@
+# Секреты и локальные артефакты — НИКОГДА не коммитим
+.env
+.env.local
+*.db
+data/
+node_modules/
+dist/
+.venv313/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+artifacts/generated/

@@ -1,0 +1,220 @@
+"""Логика чат-бота MAX: команды, карточки выезда, точечные напоминания, deep-link привязка.
+
+Сценарий в чате (слайд 15: «что лучше работает в чате»):
+- онбординг и быстрый ответ родителя (кнопки «Отпускаю» / «Не сможет»);
+- точечные напоминания должникам (не засоряя общий чат);
+- доставка сгенерированного приказа.
+Сложные экраны (каталог, «Светофор», импорт) — в мини-приложении.
+"""
+from __future__ import annotations
+
+import logging
+
+from sqlmodel import Session, select
+
+from . import services
+from .config import get_settings
+from .db import engine
+from .max_client import (
+    MaxClient,
+    callback_button,
+    inline_keyboard,
+    link_button,
+    open_app_button,
+)
+from .models import (
+    BotLinkCode,
+    Excursion,
+    ParentContact,
+    SchoolClass,
+    Student,
+    TrafficLight,
+)
+
+log = logging.getLogger("kultvyezd.bot")
+settings = get_settings()
+
+
+class BotService:
+    def __init__(self, client: MaxClient | None = None) -> None:
+        self.client = client or MaxClient()
+
+    # ------------------------------------------------------------ онбординг
+    async def handle_update(self, update: dict) -> None:
+        utype = update.get("update_type")
+        try:
+            if utype == "bot_started":
+                await self._on_started(update)
+            elif utype == "message_created":
+                await self._on_message(update)
+            elif utype == "message_callback":
+                await self._on_callback(update)
+        except Exception as exc:  # noqa: BLE001 — бот не должен падать на одном апдейте
+            log.exception("Ошибка обработки апдейта %s: %s", utype, exc)
+
+    async def _on_started(self, update: dict) -> None:
+        user = update.get("user") or {}
+        chat_id = update.get("chat_id")
+        user_id = user.get("user_id")
+        payload = update.get("payload")
+        # deep-link: /start=<code> привязывает родителя к ученику
+        if payload and str(payload).startswith("bind_"):
+            code = str(payload)[len("bind_"):]
+            linked = self._bind_by_code(code, user_id)
+            text = (
+                "✅ Готово! Вы привязаны как законный представитель.\n"
+                "Теперь вам будут приходить точечные напоминания по выездам вашего ребёнка."
+                if linked
+                else "⚠️ Код привязки не найден или устарел. Запросите новый код в мини-приложении."
+            )
+        else:
+            text = (
+                "👋 Здравствуйте! Это бот «КультВыезд».\n\n"
+                "Сервис помогает классному руководителю организовать школьный культурный выезд, "
+                "а вам — за минуту подтвердить участие ребёнка и оплатить билет напрямую в кассу музея.\n\n"
+                "Команды:\n"
+                "/trips — мои выезды\n"
+                "/help — помощь"
+            )
+        attachments = [inline_keyboard([[open_app_button("Открыть приложение", settings.MAX_BOT_USERNAME)],
+                                        [callback_button("Мои выезды", "cmd:trips")]])]
+        await self.client.send_message(chat_id=chat_id, user_id=None if chat_id else user_id,
+                                       text=text, attachments=attachments)
+
+    async def _on_message(self, update: dict) -> None:
+        message = update.get("message") or {}
+        body = message.get("body") or {}
+        text = (body.get("text") or "").strip().lower()
+        sender = message.get("sender") or {}
+        chat_id = (message.get("recipient") or {}).get("chat_id")
+        user_id = sender.get("user_id")
+        if text.startswith("/start"):
+            await self._on_started({**update, "chat_id": chat_id, "user": sender, "payload": None})
+            return
+        if text.startswith("/trips"):
+            await self._send_trips(chat_id, user_id)
+            return
+        if text.startswith("/help"):
+            await self.client.send_message(
+                chat_id=chat_id, user_id=None if chat_id else user_id,
+                text="Откройте мини-приложение кнопкой ниже — там каталог событий, статусы и документы.",
+                attachments=[inline_keyboard([[open_app_button("Открыть приложение", settings.MAX_BOT_USERNAME)]])],
+            )
+            return
+
+    async def _send_trips(self, chat_id: int | None, user_id: int | None) -> None:
+        with Session(engine) as session:
+            parent = session.exec(select(ParentContact).where(ParentContact.max_user_id == user_id)).first()
+            if not parent:
+                await self.client.send_message(
+                    chat_id=chat_id, user_id=None if chat_id else user_id,
+                    text="Чтобы получать напоминания, привяжитесь к ребёнку в мини-приложении.",
+                )
+                return
+            student = session.get(Student, parent.student_id)
+            await self.client.send_message(
+                chat_id=chat_id, user_id=None if chat_id else user_id,
+                text=f"👤 {student.full_name if student else ''}\nАктивные выезды доступны в приложении.",
+                attachments=[inline_keyboard([[open_app_button("Открыть приложение", settings.MAX_BOT_USERNAME)]])],
+            )
+
+    async def _on_callback(self, update: dict) -> None:
+        callback = update.get("callback") or {}
+        callback_id = callback.get("callback_id")
+        payload = callback.get("payload") or ""
+        user = callback.get("user") or {}
+        user_id = user.get("user_id")
+        if payload == "cmd:trips":
+            await self.client.answer_callback(callback_id, notification="Открываю список выездов в приложении.")
+            return
+        if payload.startswith("consent:"):
+            await self._handle_consent_callback(callback_id, payload, user_id)
+            return
+        await self.client.answer_callback(callback_id)
+
+    async def _handle_consent_callback(self, callback_id: str, payload: str, user_id: int | None) -> None:
+        # payload: consent:<excursion_id>:<student_id>:<APPROVED|REJECTED>
+        try:
+            _, exc_id, student_id, decision = payload.split(":")
+            exc_id_i, student_id_i = int(exc_id), int(student_id)
+        except ValueError:
+            await self.client.answer_callback(callback_id, notification="Некорректная команда.")
+            return
+        with Session(engine) as session:
+            excursion = session.get(Excursion, exc_id_i)
+            if not excursion:
+                await self.client.answer_callback(callback_id, notification="Выезд не найден.")
+                return
+            if user_id:
+                parent = session.exec(
+                    select(ParentContact).where(
+                        ParentContact.max_user_id == user_id, ParentContact.student_id == student_id_i
+                    )
+                ).first()
+                if parent:
+                    parent_name, parent_phone = parent.full_name, parent.phone_number
+                else:
+                    parent_name, parent_phone = "Законный представитель", ""
+            else:
+                parent_name, parent_phone = "Законный представитель", ""
+            participant, changed, msg = services.apply_consent(
+                session, excursion, student_id=student_id_i, status=decision,
+                parent_name=parent_name, parent_phone=parent_phone, source="bot",
+            )
+        await self.client.answer_callback(callback_id, notification=msg)
+
+    # ------------------------------------------------------------ напоминания
+    async def remind(self, excursion: Excursion, session: Session) -> tuple[int, list[str]]:
+        targets = services.remind_targets(session, excursion)
+        delivered: list[str] = []
+        for t in targets:
+            text = services.reminder_text(excursion, t["student_name"], t["traffic_light"])
+            attachments = self._consent_keyboard(excursion, t["student_id"])
+            if t.get("max_user_id") and self.client.enabled:
+                await self.client.send_message(user_id=t["max_user_id"], text=text, attachments=attachments)
+            delivered.append(t["student_name"])
+        return len(targets), delivered
+
+    def _consent_keyboard(self, excursion: Excursion, student_id: int) -> list[dict]:
+        approve = callback_button("✅ Отпускаю ребёнка", f"consent:{excursion.id}:{student_id}:APPROVED")
+        reject = callback_button("❌ Не сможет поехать", f"consent:{excursion.id}:{student_id}:REJECTED")
+        return [inline_keyboard([[approve], [reject]])]
+
+    # ------------------------------------------------------------ публикация
+    async def publish_to_chat(self, excursion: Excursion, chat_id: int) -> dict | None:
+        text = (
+            f"📣 Новый выезд: {excursion.title}\n"
+            f"📍 {excursion.location_name}\n"
+            f"🗓 {excursion.event_date.strftime('%d.%m.%Y') if excursion.event_date else '—'}\n"
+            + (f"💰 {excursion.ticket_price:.0f} ₽ (оплата напрямую в кассу)\n" if excursion.ticket_price else "🆓 Бесплатно\n")
+            + (f"🎫 Доступно по «Пушкинской карте»\n" if excursion.is_pushkin_card else "")
+            + f"⏳ Ответить до: {excursion.deadline.strftime('%d.%m.%Y %H:%M') if excursion.deadline else '—'}"
+        )
+        attachments = [inline_keyboard([[open_app_button("Ответить в приложении", settings.MAX_BOT_USERNAME)]])]
+        return await self.client.send_message(chat_id=chat_id, text=text, attachments=attachments)
+
+    # ------------------------------------------------------------ привязка
+    def _bind_by_code(self, code: str, user_id: int | None) -> bool:
+        if not user_id:
+            return False
+        with Session(engine) as session:
+            link = session.exec(select(BotLinkCode).where(BotLinkCode.code == code, BotLinkCode.used == False)).first()  # noqa: E712
+            if not link:
+                return False
+            parent = session.exec(
+                select(ParentContact).where(ParentContact.student_id == link.student_id)
+            ).first()
+            if parent:
+                parent.max_user_id = user_id
+                session.add(parent)
+            link.used = True
+            session.add(link)
+            session.commit()
+            return True
+
+
+def _excursion_for_student(session: Session, student_id: int) -> Excursion | None:
+    student = session.get(Student, student_id)
+    if not student:
+        return None
+    return session.exec(select(Excursion).where(Excursion.class_id == student.class_id)).first()
