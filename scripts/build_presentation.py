@@ -121,7 +121,10 @@ def build(repo_url: str, commit: str) -> None:
         ["Сертификаты Минцифры", "certs/ca-bundle.pem (монтируется как /certs); диагностика: scripts/doctor.py"],
         ["Тестовые данные", "artifacts/sample_class_import.csv; автоматический демо-класс 8-Б (24 ученика)"],
         ["План авто-проверки API", "artifacts/DATA-API.yaml, артефакты openapi.json / openapi.yaml"],
-        ["Автотесты", "backend: pytest (13); бот через эмулятор MAX: scripts/e2e_agent.py (14); стек: scripts/e2e_docker.py (18)"],
+        ["Автотесты (219)", "pytest 139 · vitest 31 · E2E-эмулятор MAX 15 · docker-стек 18 · UI (Playwright) 16"],
+        ["CI", ".github/workflows/ci.yml — pytest + vitest + агентный E2E на каждый push"],
+        ["Проверка подлинности", "POST /api/v1/max/validate-init-data (HMAC-SHA256 подписи initData MAX Bridge)"],
+        ["Команды бота в MAX", "PATCH /me/commands: start / trips / help (зарегистрированы на живом API)"],
     ]
     t = Table([[Paragraph(f"<b>{a}</b>", SMALL), Paragraph(b, SMALL)] for a, b in rows],
               colWidths=[62 * mm, 220 * mm])
