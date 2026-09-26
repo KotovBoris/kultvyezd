@@ -70,6 +70,13 @@ class MaxClient:
             body["format"] = fmt
         return await self._request("POST", "/messages", params=params, json=body)
 
+    async def set_commands(self, commands: list[dict[str, str]]) -> dict[str, Any] | None:
+        """PATCH /me/commands — регистрирует команды бота (MAX Bot API, раздел bots).
+
+        После регистрации MAX показывает пользователю подсказку по командам.
+        """
+        return await self._request("PATCH", "/me/commands", json={"commands": commands})
+
     async def answer_callback(self, callback_id: str, *, text: str | None = None,
                               attachments: list[dict] | None = None,
                               notification: str | None = None) -> dict[str, Any] | None:
@@ -107,6 +114,14 @@ class MaxClient:
 
 
 # ------------------------------------------------------------------ helpers
+# Команды бота, регистрируемые в MAX через PATCH /me/commands (подсказки в мессенджере)
+BOT_COMMANDS: list[dict[str, str]] = [
+    {"name": "start", "description": "Начать работу с ботом «КультВыезд»"},
+    {"name": "trips", "description": "Мои выезды и статусы по ребёнку"},
+    {"name": "help", "description": "Как открыть мини-приложение"},
+]
+
+
 def inline_keyboard(buttons: list[list[dict]]) -> dict:
     """Формирует AttachmentRequest типа inline_keyboard (по схеме MAX)."""
     return {"type": "inline_keyboard", "payload": {"buttons": buttons}}

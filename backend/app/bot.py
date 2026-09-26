@@ -16,6 +16,7 @@ from . import services
 from .config import get_settings
 from .db import engine
 from .max_client import (
+    BOT_COMMANDS,
     MaxClient,
     callback_button,
     inline_keyboard,

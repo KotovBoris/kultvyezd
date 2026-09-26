@@ -40,6 +40,7 @@ STATE = {
     "updates": [],          # очередь входящих апдейтов (как будто их прислал MAX)
     "outbox": [],           # исходящие сообщения/ответы бота (POST /messages, /answers)
     "marker": 1000,
+    "commands": [],         # команды бота, зарегистрированные через PATCH /me/commands
 }
 LOCK = threading.Lock()
 
@@ -125,6 +126,25 @@ class MaxEmulator(BaseHTTPRequestHandler):
 
         return _json(self, 404, {"code": "not_found"})
 
+    def do_PATCH(self) -> None:  # noqa: N802
+        """PATCH /me/commands — регистрация команд бота.
+
+        Тело запроса обязательно прочитать: при HTTP/1.1 keep-alive непрочитанные
+        байты иначе трактуются как следующий запрос и ломают long polling.
+        """
+        parsed = urllib.parse.urlparse(self.path)
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            payload = json.loads(raw or b"{}")
+        except Exception:  # noqa: BLE001
+            payload = {}
+        if parsed.path == "/me/commands":
+            with LOCK:
+                STATE["commands"] = payload.get("commands", [])
+            return _json(self, 200, {"commands": payload.get("commands", [])})
+        return _json(self, 404, {"code": "not_found"})
+
 
 # ------------------------------------------------------------------ утилиты
 def free_port() -> int:
@@ -199,11 +219,12 @@ def main() -> int:
         "MINIAPP_BASE_URL": api_base,
         "LOG_LEVEL": "WARNING",
     })
+    verbose = os.environ.get("E2E_VERBOSE") == "1"
     backend = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
-         "--port", str(api_port), "--log-level", "warning"],
+         "--port", str(api_port), "--log-level", "info" if verbose else "warning"],
         cwd=BACKEND, env=env,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        stdout=None if verbose else subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     print(f"▶ backend (polling на эмулятор): {api_base}")
 
@@ -237,6 +258,11 @@ def main() -> int:
                 for b in row:
                     btn_types.add(b.get("type"))
         checks.ok("open_app" in btn_types, "в приветствии есть нативная кнопка open_app (мини-приложение MAX)")
+
+        # Регистрация команд бота в MAX (PATCH /me/commands) при старте
+        got_commands = wait_until(lambda: len(STATE.get("commands", [])) >= 1, timeout=15)
+        checks.ok(got_commands and len(STATE["commands"]) >= 3,
+                  f"команды бота зарегистрированы в MAX (PATCH /me/commands): {len(STATE.get('commands', []))}")
 
         # --- Шаг 2. Учитель создаёт выезд через REST ---
         classes = http("GET", f"{api_base}/api/v1/classes")[1]

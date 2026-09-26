@@ -27,6 +27,7 @@ from .catalog_seed import SOURCE, seed_all
 from .config import get_settings
 from .db import Session, engine, get_session, init_db
 from .documents import build_order_docx, build_order_pdf
+from .max_client import BOT_COMMANDS
 from .models import (
     BotLinkCode,
     CultureEvent,
@@ -90,6 +91,10 @@ async def _poll_loop() -> None:
     bot = BotService()
     me = await bot.client.get_me()
     log.info("MAX polling запущен, бот: %s", (me or {}).get("name"))
+    # Регистрируем команды бота в MAX (подсказки в интерфейсе мессенджера)
+    registered = await bot.client.set_commands(BOT_COMMANDS)
+    if registered is not None:
+        log.info("Команды бота зарегистрированы в MAX: %s", ", ".join(c["name"] for c in BOT_COMMANDS))
     marker: int | None = None
     while True:
         try:

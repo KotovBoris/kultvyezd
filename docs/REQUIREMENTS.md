@@ -162,6 +162,8 @@
 | BOT-16 |[BOT] Webhook принимает одиночный Update | 200 `{ok:true, processed:1}` |
 | BOT-17 |[BOT] Webhook принимает список Update | 200; `processed == len` |
 | BOT-18 |[BOT] Webhook с невалидным JSON | 400 |
+| BOT-20 |[BOT] Команды бота корректны по схеме MAX | `start`, `trips`, `help`; уникальны; длины в пределах схемы |
+| BOT-21 |[BOT] `PATCH /me/commands` не бросает исключений при недоступном API | возвращает None, сервис жив |
 
 ## 13. Мини-приложение: MAX Bridge
 

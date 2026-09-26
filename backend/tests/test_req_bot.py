@@ -209,6 +209,40 @@ def test_BOT_18_webhook_bad_json(client) -> None:  # noqa: ANN001
     assert r.status_code == 400
 
 
+def test_BOT_20_bot_commands_valid() -> None:
+    """Команды бота корректны по схеме MAX (PATCH /me/commands)."""
+    from app.max_client import BOT_COMMANDS  # noqa: PLC0415
+
+    names = [c["name"] for c in BOT_COMMANDS]
+    assert names == ["start", "trips", "help"]
+    assert len(set(names)) == len(names)
+    for c in BOT_COMMANDS:
+        assert 1 <= len(c["name"]) <= 64
+        assert 1 <= len(c["description"]) <= 128
+
+
+@pytest.mark.asyncio
+async def test_BOT_21_set_commands_no_network() -> None:
+    """Регистрация команд не бросает исключений при недоступном API MAX."""
+    from app.max_client import BOT_COMMANDS, MaxClient  # noqa: PLC0415
+
+    client = MaxClient(token="x", base="http://127.0.0.1:1")
+    assert await client.set_commands(BOT_COMMANDS) is None
+
+
+def test_BOT_22_lifespan_symbols_imported() -> None:
+    """Все имена, используемые в lifespan/polling, импортированы в main.
+
+    Регресс-защита: однажды `BOT_COMMANDS` использовался в lifespan, но не был
+    импортирован — приложение падало при старте в режиме polling. Тесты с
+    выключенным ботом этого не ловили; этот тест ловит.
+    """
+    import app.main as m  # noqa: PLC0415
+
+    for name in ("BOT_COMMANDS", "BotService", "_poll_loop", "BOT_COMMANDS"):
+        assert hasattr(m, name), f"{name} не импортирован в app.main"
+
+
 # ------------------------------------------------------- helpers
 def _fresh_excursion_and_student() -> tuple[int, int]:
     with Session(engine) as s:
