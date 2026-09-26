@@ -165,14 +165,21 @@ class BotService:
 
     # ------------------------------------------------------------ напоминания
     async def remind(self, excursion: Excursion, session: Session) -> tuple[int, list[str]]:
+        """Возвращает (число адресатов, список ФИО, кому реально доставлено).
+
+        Доставленным считается только фактически отправленное сообщение —
+        если родитель не привязан к боту или бот выключен, это не «доставлено».
+        """
         targets = services.remind_targets(session, excursion)
         delivered: list[str] = []
         for t in targets:
+            if not (t.get("max_user_id") and self.client.enabled):
+                continue
             text = services.reminder_text(excursion, t["student_name"], t["traffic_light"])
             attachments = self._consent_keyboard(excursion, t["student_id"])
-            if t.get("max_user_id") and self.client.enabled:
-                await self.client.send_message(user_id=t["max_user_id"], text=text, attachments=attachments)
-            delivered.append(t["student_name"])
+            result = await self.client.send_message(user_id=t["max_user_id"], text=text, attachments=attachments)
+            if result is not None:
+                delivered.append(t["student_name"])
         return len(targets), delivered
 
     def _consent_keyboard(self, excursion: Excursion, student_id: int) -> list[dict]:

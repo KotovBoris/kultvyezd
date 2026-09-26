@@ -31,4 +31,35 @@ def client() -> TestClient:
 
 @pytest.fixture()
 def first_class(client: TestClient) -> dict:
-    return client.get("/api/v1/classes").json()[0]
+    """Демо-класс 8-Б (создаётся сидером при старте)."""
+    classes = client.get("/api/v1/classes").json()
+    demo = next((c for c in classes if c["title"] == "8Б"), classes[0] if classes else None)
+    assert demo, "демо-класс не засеян"
+    return demo
+
+
+@pytest.fixture()
+def paid_event(client: TestClient) -> dict:
+    events = client.get("/api/v1/culture-events", params={"pushkin": True}).json()
+    paid = next((e for e in events if e["price"] > 0), events[0])
+    return paid
+
+
+@pytest.fixture()
+def free_event(client: TestClient) -> dict:
+    events = client.get("/api/v1/culture-events", params={"free": True}).json()
+    assert events, "нет бесплатных событий"
+    return events[0]
+
+
+def make_excursion(client: TestClient, klass: dict, event_id: int | None = None, **extra) -> dict:
+    """Хелпер: создать выезд и вернуть его тело."""
+    body = {"class_id": klass["id"], "gathering_time": "08:30", "return_time": "14:00"}
+    if event_id is not None:
+        body["culture_event_id"] = event_id
+    else:
+        body["title"] = "Тестовый выезд"
+    body.update(extra)
+    r = client.post("/api/v1/excursions", json=body)
+    assert r.status_code == 201, r.text
+    return r.json()

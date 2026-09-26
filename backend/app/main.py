@@ -508,7 +508,9 @@ async def max_webhook(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": "invalid json"}, status_code=400)
     updates = payload if isinstance(payload, list) else [payload]
     bot = BotService()
+    processed = 0
     for update in updates:
         if isinstance(update, dict) and update.get("update_type"):
             await bot.handle_update(update)
-    return JSONResponse({"ok": True, "processed": len(updates)})
+            processed += 1
+    return JSONResponse({"ok": True, "processed": processed})
