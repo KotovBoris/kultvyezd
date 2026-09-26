@@ -78,6 +78,13 @@
 
 Официальная спецификация MAX Bot API сохранена в [`docs/max/max-bot-api-schema.yaml`](docs/max/max-bot-api-schema.yaml).
 
+Подробнее:
+- архитектура и технические решения — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md);
+- масштабирование и тиражирование (критерий 35%) — [`docs/SCALING.md`](docs/SCALING.md);
+- продуктовые исследования и обоснование — [`docs/PRODUCT_RESEARCH.md`](docs/PRODUCT_RESEARCH.md).
+- проверка подлинности данных MAX — `POST /api/v1/max/validate-init-data`
+  (алгоритм в [`backend/app/max_validate.py`](backend/app/max_validate.py)).
+
 ---
 
 ## 4. Запуск всех локальных компонентов (одна команда)
