@@ -83,7 +83,9 @@
 - масштабирование и тиражирование (критерий 35%) — [`docs/SCALING.md`](docs/SCALING.md);
 - продуктовые исследования и обоснование — [`docs/PRODUCT_RESEARCH.md`](docs/PRODUCT_RESEARCH.md).
 - проверка подлинности данных MAX — `POST /api/v1/max/validate-init-data`
-  (алгоритм в [`backend/app/max_validate.py`](backend/app/max_validate.py)).
+  (алгоритм в [`backend/app/max_validate.py`](backend/app/max_validate.py));
+- сценарий показа для защиты — [`docs/DEMO.md`](docs/DEMO.md);
+- короткий чек-лист ручной проверки — [`qa/checklist.md`](qa/checklist.md).
 
 ---
 
