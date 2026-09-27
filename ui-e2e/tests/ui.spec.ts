@@ -52,10 +52,9 @@ test("UI-4/UI-5: создание выезда и переход к ведомо
   await page.getByRole("button", { name: "Каталог событий" }).click();
   await expect(page.getByText(/Каталог событий · Казань/)).toBeVisible();
 
-  // дождаться загрузки каталога: тогда появляется карточка «Выбор события»
-  await expect(page.getByText("Выбор события")).toBeVisible();
-  const pickers = page.getByRole("combobox");
-  await pickers.last().selectOption({ index: 1 });
+  // дождаться загрузки каталога и выбрать событие кликом прямо по строке
+  await expect(page.getByText(/Найдено событий/)).toBeVisible();
+  await page.locator(".kv-eventbtn").first().click();
   await expect(page.getByText("Оформление выезда")).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/03-create-excursion.png`, fullPage: true });
 

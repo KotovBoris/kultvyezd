@@ -287,16 +287,24 @@ export default function CatalogScreen({
               </thead>
               <tbody>
                 {shown.map((ev) => (
-                  <tr key={ev.id}>
+                  <tr key={ev.id} className={selected?.id === ev.id ? "is-active" : undefined}>
                     <td>
-                      <b>{ev.title}</b>
-                      <div className="kv-muted">
-                        <IconPin size={12} /> {ev.venue}
-                      </div>
-                      <div className="kv-wrap" style={{ marginTop: 4 }}>
-                        {ev.pushkin_eligible && <span className="kv-chip pushkin">Пушкинская карта</span>}
-                        {ev.is_free && <span className="kv-chip free">Бесплатно</span>}
-                      </div>
+                      {/* Выбор события — клик прямо по строке, без отдельного списка-селекта */}
+                      <button
+                        type="button"
+                        className="kv-eventbtn"
+                        aria-current={selected?.id === ev.id ? "true" : undefined}
+                        onClick={() => setSelected(ev)}
+                      >
+                        <b>{ev.title}</b>
+                        <span className="kv-muted">
+                          <IconPin size={12} /> {ev.venue}
+                        </span>
+                        <span className="kv-wrap" style={{ marginTop: 4 }}>
+                          {ev.pushkin_eligible && <span className="kv-chip pushkin">Пушкинская карта</span>}
+                          {ev.is_free && <span className="kv-chip free">Бесплатно</span>}
+                        </span>
+                      </button>
                     </td>
                     <td className="kv-data">
                       <IconCalendar size={12} /> {ev.event_date ?? "—"}
@@ -308,6 +316,11 @@ export default function CatalogScreen({
               </tbody>
             </table>
             {empty && <div className="kv-empty" style={{ marginTop: 10 }}>Под фильтры ничего не подошло.</div>}
+            {!empty && !selected && (
+              <p className="kv-muted" style={{ marginTop: 10, marginBottom: 0 }}>
+                Нажмите на событие, чтобы оформить выезд.
+              </p>
+            )}
           </>
         )}
       </div>
@@ -330,7 +343,7 @@ export default function CatalogScreen({
         </div>
       )}
 
-      {selected ? (
+      {selected && (
         <div className="kv-card is-active">
           <p className="kv-section">Оформление выезда</p>
           <h3>{selected.title}</h3>
@@ -370,30 +383,6 @@ export default function CatalogScreen({
             </button>
           </div>
         </div>
-      ) : (
-        !loading &&
-        shown.length > 0 && (
-          <div className="kv-card">
-            <p className="kv-section">Выбор события</p>
-            <div className="kv-filters">
-              <select
-                defaultValue=""
-                aria-label="Выбор события"
-                onChange={(e) => {
-                  const ev = shown.find((x) => String(x.id) === e.target.value);
-                  if (ev) setSelected(ev);
-                }}
-              >
-                <option value="">Выбрать из каталога…</option>
-                {shown.map((ev) => (
-                  <option key={ev.id} value={ev.id}>
-                    {ev.title} — {ev.venue}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )
       )}
     </>
   );

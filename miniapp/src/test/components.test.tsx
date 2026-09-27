@@ -406,10 +406,8 @@ describe("CatalogScreen", () => {
     const onCreated = vi.fn();
     render(<CatalogScreen classes={classes} onCreated={onCreated} />);
     await screen.findByText("Событие");
-    // выбираем событие из списка «Выбор события»
-    const pickers = screen.getAllByRole("combobox");
-    const picker = pickers[pickers.length - 1];
-    await userEvent.selectOptions(picker, "7");
+    // выбираем событие кликом прямо по нему (строка каталога — кнопка)
+    await userEvent.click(screen.getByRole("button", { name: /Событие/ }));
     await userEvent.click(await screen.findByRole("button", { name: /Создать выезд/i }));
     await waitFor(() => expect(apiMock.createExcursion).toHaveBeenCalled());
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(42));
