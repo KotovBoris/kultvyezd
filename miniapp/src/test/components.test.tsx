@@ -111,8 +111,8 @@ describe("DashboardScreen", () => {
     apiMock.dashboard.mockResolvedValue(dashboard());
     render(<DashboardScreen excursionId={1} onChange={() => {}} />);
     await screen.findByText(/Готов: 1/);
-    const docx = screen.getByRole("link", { name: /Скачать DOCX/i });
-    const pdf = screen.getByRole("link", { name: /Скачать PDF/i });
+    const docx = screen.getByRole("link", { name: /DOCX \(прямая ссылка\)/i });
+    const pdf = screen.getByRole("link", { name: /PDF \(прямая ссылка\)/i });
     expect(docx).toHaveAttribute("href", "/api/v1/excursions/1/export-order?fmt=docx");
     expect(pdf).toHaveAttribute("href", "/api/v1/excursions/1/export-order?fmt=pdf");
   });
@@ -129,7 +129,7 @@ describe("CatalogScreen", () => {
     ]);
     render(<CatalogScreen classes={[{ id: 1, title: "8Б", school_number: "", school_name: "", teacher_name: "", students: [] }]} onCreated={() => {}} />);
     await screen.findByText("Событие");
-    // первый чекбокс фильтра — «Пушкинская карта» (текст также есть у чипа события)
+    // первый чекбокс фильтра — «Пушкинская карта»
     await userEvent.click(screen.getAllByRole("checkbox")[0]);
     await waitFor(() => {
       const calls = apiMock.events.mock.calls;
@@ -148,8 +148,11 @@ describe("CatalogScreen", () => {
     const onCreated = vi.fn();
     render(<CatalogScreen classes={[{ id: 1, title: "8Б", school_number: "", school_name: "", teacher_name: "", students: [] }]} onCreated={onCreated} />);
     await screen.findByText("Событие");
-    await userEvent.click(screen.getByRole("button", { name: /Выбрать событие/i }));
-    await userEvent.click(screen.getByRole("button", { name: /Создать выезд/i }));
+    // выбираем событие из списка «Выбор события»
+    const pickers = screen.getAllByRole("combobox");
+    const picker = pickers[pickers.length - 1];
+    await userEvent.selectOptions(picker, "7");
+    await userEvent.click(await screen.findByRole("button", { name: /Создать выезд/i }));
     await waitFor(() => expect(apiMock.createExcursion).toHaveBeenCalled());
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(42));
   });

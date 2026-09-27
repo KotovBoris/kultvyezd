@@ -12,35 +12,37 @@ export default function ExcursionsScreen({
   if (!excursions.length) {
     return (
       <div className="kv-card">
-        <h3>Пока нет выездов</h3>
-        <p className="kv-muted">Создайте первый выезд во вкладке «Каталог событий».</p>
+        <p className="kv-section">Журнал выездов</p>
+        <p className="kv-muted">Записей нет. Создайте первый выезд во вкладке «Каталог событий».</p>
       </div>
     );
   }
   return (
     <div className="kv-card">
-      <h3>Мои выезды</h3>
+      <p className="kv-section">Журнал выездов · {excursions.length}</p>
       <table className="kv-table">
         <thead>
           <tr>
-            <th>Событие</th>
+            <th style={{ width: 24 }}>№</th>
+            <th>Мероприятие</th>
             <th>Дата</th>
             <th>Статус</th>
           </tr>
         </thead>
         <tbody>
-          {excursions.map((e) => (
+          {excursions.map((e, i) => (
             <tr
               key={e.id}
               onClick={() => onSelect(e.id)}
-              style={{ cursor: "pointer", background: e.id === activeId ? "#f6f4ff" : undefined }}
+              style={{ cursor: "pointer", background: e.id === activeId ? "#fafbfa" : undefined }}
             >
+              <td className="kv-num">{i + 1}</td>
               <td>
                 <b>{e.title}</b>
                 <div className="kv-muted">{e.location_name}</div>
               </td>
-              <td>{e.event_date ?? "—"}</td>
-              <td>{e.status}</td>
+              <td className="kv-data">{e.event_date ?? "—"}</td>
+              <td className="kv-muted">{e.status === "VOTING" ? "сбор ответов" : e.status}</td>
             </tr>
           ))}
         </tbody>

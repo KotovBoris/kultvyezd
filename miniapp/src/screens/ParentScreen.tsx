@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { api, type Excursion, type ParticipantRow } from "../api";
 import { downloadFile, haptic, isInsideMax, openLink, requestContact } from "../max";
 import { setSession } from "../store";
+import { IconBack, IconCard, IconCheck, IconCross } from "../icons";
 
 /**
  * Экран законного представителя (UC-4/UC-5).
- * Открывается из бота кнопкой open_app с контекстом ?startapp=<student_id>.
- * Согласие привязывается к профилю ученика — повторное подписание невозможно.
+ * Открывается из бота кнопкой open_app с контекстом ?startapp=<student_id>
+ * либо по MAX-профилю (max_user_id). Согласие привязано к профилю ученика.
  */
 export default function ParentScreen({
   studentId,
@@ -79,7 +80,7 @@ export default function ParentScreen({
   async function bindBot() {
     try {
       const r = await api.linkCode(studentId);
-      setMsg(`Код привязки создан. Откройте бота по ссылке, чтобы получать персональные напоминания: ${r.deep_link}`);
+      setMsg(`Код привязки создан. Откройте бота, чтобы получать напоминания: ${r.deep_link}`);
       openLink(r.deep_link);
     } catch (e: any) {
       setMsg(`Ошибка привязки: ${e.message}`);
@@ -89,11 +90,15 @@ export default function ParentScreen({
   return (
     <>
       <div className="kv-card">
-        <h3>Мои выезды</h3>
-        {studentName && <p className="kv-muted">Ребёнок: <b>{studentName}</b></p>}
+        <p className="kv-section">Согласие законного представителя</p>
+        {studentName && (
+          <p style={{ margin: "0 0 6px" }}>
+            Обучающийся: <b>{studentName}</b>
+          </p>
+        )}
         <p className="kv-muted">
-          Подтвердите участие ребёнка. Согласие фиксируется простой электронной подписью (дата, время, ID).
-          Оплата билета — напрямую в кассу учреждения культуры.
+          Подтвердите участие ребёнка. Согласие фиксируется простой электронной подписью (дата,
+          время, подписант). Оплата билета — напрямую в кассу учреждения культуры.
         </p>
         <div className="kv-actions">
           <button className="kv-btn ghost" onClick={bindBot}>
@@ -104,7 +109,7 @@ export default function ParentScreen({
               className="kv-btn ghost"
               onClick={() => setSession({ role: "teacher", studentId: null, resolvedStudentId: null })}
             >
-              ← Вернуться в режим учителя
+              <IconBack /> В режим учителя
             </button>
           )}
         </div>
@@ -120,19 +125,38 @@ export default function ParentScreen({
         return (
           <div key={e.id} className="kv-card">
             <h3>{e.title}</h3>
-            <p className="kv-muted">
-              {e.location_name} · {e.event_date ?? "дата уточняется"}
-              <br />
-              Сбор {e.gathering_time ?? "—"} · возвращение {e.return_time ?? "—"}
-            </p>
-            <div className="kv-wrap">
+            <table className="kv-table" style={{ marginTop: 6 }}>
+              <tbody>
+                <tr>
+                  <td className="kv-num">Место</td>
+                  <td>{e.location_name}</td>
+                </tr>
+                <tr>
+                  <td className="kv-num">Дата</td>
+                  <td className="kv-data">
+                    {e.event_date ?? "уточняется"} · {e.gathering_time ?? "—"}–{e.return_time ?? "—"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div className="kv-wrap" style={{ marginTop: 8 }}>
               {e.is_pushkin_card && <span className="kv-chip pushkin">Пушкинская карта</span>}
               {e.ticket_price > 0 ? (
-                <span className="kv-chip">{e.ticket_price.toFixed(0)} ₽</span>
+                <span className="kv-chip money">{e.ticket_price.toFixed(0)} ₽</span>
               ) : (
                 <span className="kv-chip free">Бесплатно</span>
               )}
-              {row && <span className={`kv-badge badge-${row.traffic_light}`}>{row.traffic_light}</span>}
+              {row && (
+                <span className={`kv-badge badge-${row.traffic_light}`}>
+                  {row.traffic_light === "GREEN"
+                    ? "Готов"
+                    : row.traffic_light === "YELLOW"
+                    ? "Ждём билет"
+                    : row.traffic_light === "GREY"
+                    ? "Нет ответа"
+                    : "Отказ"}
+                </span>
+              )}
             </div>
 
             {decided ? (
@@ -144,32 +168,34 @@ export default function ParentScreen({
                   : `Зафиксирован отказ: ${row!.rejection_reason ?? "—"}.`}
               </div>
             ) : (
-              <>
-                <div className="kv-actions">
-                  <button className="kv-btn primary" disabled={busy} onClick={() => act(e.id, "APPROVED")}>
-                    ✅ Отпускаю ребёнка
-                  </button>
-                  <select value={reason} onChange={(ev) => setReason(ev.target.value)}>
-                    <option>Болезнь</option>
-                    <option>Семейные обстоятельства</option>
-                    <option>Другое</option>
-                  </select>
-                  <button className="kv-btn" disabled={busy} onClick={() => act(e.id, "REJECTED")}>
-                    ❌ Не сможет поехать
-                  </button>
-                </div>
-              </>
+              <div className="kv-actions">
+                <button className="kv-btn primary" disabled={busy} onClick={() => act(e.id, "APPROVED")}>
+                  <IconCheck /> Отпускаю ребёнка
+                </button>
+                <select
+                  value={reason}
+                  onChange={(ev) => setReason(ev.target.value)}
+                  style={{ padding: "6px 8px", border: "1px solid var(--rule-strong)", borderRadius: 2, font: "inherit" }}
+                >
+                  <option>Болезнь</option>
+                  <option>Семейные обстоятельства</option>
+                  <option>Другое</option>
+                </select>
+                <button className="kv-btn" disabled={busy} onClick={() => act(e.id, "REJECTED")}>
+                  <IconCross /> Не сможет поехать
+                </button>
+              </div>
             )}
 
             {row?.consent_status === "APPROVED" && row.ticket_status === "WAITING_PAYMENT" && (
               <div className="kv-actions">
                 {e.ticket_sale_url && (
                   <button className="kv-btn" onClick={() => openLink(e.ticket_sale_url)}>
-                    Купить билет на сайте музея
+                    <IconCard /> Купить билет на сайте музея
                   </button>
                 )}
                 <button className="kv-btn ghost" disabled={busy} onClick={() => confirmTicket(e.id)}>
-                  Билет куплен
+                  <IconCheck /> Билет куплен
                 </button>
               </div>
             )}

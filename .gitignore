@@ -15,3 +15,6 @@ artifacts/generated/
 
 # Полноразмерные скриншоты UI-харнесса (лёгкие версии — в docs/screenshots/)
 artifacts/ui/
+
+# Дубли variable-font сабсетов (не нужны: один файл покрывает все веса)
+*.dup

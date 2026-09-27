@@ -40,41 +40,43 @@ test("UI-1/UI-2: учитель — шапка, вкладки, каталог",
   await page.screenshot({ path: `${SHOTS}/01-teacher.png`, fullPage: true });
 
   await page.getByRole("button", { name: "Каталог событий" }).click();
-  await expect(page.getByText("Каталог культурных событий")).toBeVisible();
+  await expect(page.getByText(/Каталог событий · Казань/)).toBeVisible();
   // фильтр «Пушкинская карта»
   await page.getByRole("checkbox").first().check();
   await expect(page.getByText("Пушкинская карта").first()).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/02-catalog.png`, fullPage: true });
 });
 
-test("UI-4/UI-5: создание выезда и переход к «Светофору»", async ({ page }) => {
+test("UI-4/UI-5: создание выезда и переход к ведомости", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Каталог событий" }).click();
-  await expect(page.getByText("Каталог культурных событий")).toBeVisible();
+  await expect(page.getByText(/Каталог событий · Казань/)).toBeVisible();
 
-  await page.getByRole("button", { name: /Выбрать событие/i }).first().click();
-  await expect(page.getByText(/Новый выезд:/)).toBeVisible();
+  // выбираем событие из списка «Выбор события»
+  const pickers = page.getByRole("combobox");
+  await pickers.last().selectOption({ index: 1 });
+  await expect(page.getByText("Оформление выезда")).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/03-create-excursion.png`, fullPage: true });
 
   await page.getByRole("button", { name: /Создать выезд/i }).click();
-  await expect(page.getByText("Сводка «Светофор»")).toBeVisible();
+  await expect(page.getByText(/Ведомость класса/)).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/04-dashboard.png`, fullPage: true });
 });
 
 test("UI-7/UI-8: формирование приказа и прямые ссылки", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Сводка «Светофор»")).toBeVisible();
+  await expect(page.getByText(/Ведомость класса/)).toBeVisible();
   await page.getByRole("button", { name: /Сформировать приказ/i }).click();
   await expect(page.getByText(/Приказ сформирован/i)).toBeVisible();
-  await expect(page.getByRole("link", { name: /Скачать DOCX/i })).toHaveAttribute("href", /export-order/);
-  await expect(page.getByRole("link", { name: /Скачать PDF/i })).toHaveAttribute("href", /export-order/);
+  await expect(page.getByRole("link", { name: /DOCX \(прямая ссылка\)/i })).toHaveAttribute("href", /export-order/);
+  await expect(page.getByRole("link", { name: /PDF \(прямая ссылка\)/i })).toHaveAttribute("href", /export-order/);
   await page.screenshot({ path: `${SHOTS}/05-order.png`, fullPage: true });
 });
 
 test("UI-9/UI-10: экран родителя по ?startapp и согласие", async ({ page }) => {
   // ученик №1 демо-класса
   await page.goto("/?startapp=1");
-  await expect(page.getByText("Мои выезды")).toBeVisible();
+  await expect(page.getByText("Согласие законного представителя")).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/06-parent.png`, fullPage: true });
 
   const approve = page.getByRole("button", { name: /Отпускаю ребёнка/i }).first();
@@ -88,7 +90,7 @@ test("UI-9/UI-10: экран родителя по ?startapp и согласие
 test("BRG-7: внутри MAX показывается платформа и версия", async ({ page }) => {
   await injectMaxBridge(page, 987654, "ios");
   await page.goto("/");
-  await expect(page.getByText(/Платформа:/)).toBeVisible();
+  await expect(page.getByText(/платформа ios/)).toBeVisible();
   await expect(page.locator("body")).toContainText("ios");
   await expect(page.locator("body")).not.toContainText("запущено вне MAX");
   await page.screenshot({ path: `${SHOTS}/08-inside-max.png`, fullPage: true });
@@ -101,7 +103,7 @@ test("UI-14: режим просмотра вне MAX доступен", async (
 
 test("UI-15: мобильная верстка без горизонтального переполнения", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("Сводка «Светофор»")).toBeVisible();
+  await expect(page.getByText(/Ведомость класса/)).toBeVisible();
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
@@ -109,7 +111,7 @@ test("UI-15: мобильная верстка без горизонтально
 
   // родительский экран тоже не должен «разъезжаться»
   await page.goto("/?startapp=1");
-  await expect(page.getByText("Мои выезды")).toBeVisible();
+  await expect(page.getByText("Согласие законного представителя")).toBeVisible();
   const overflow2 = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
@@ -120,8 +122,8 @@ test("режим просмотра: открыть экран родителя 
   await page.goto("/");
   await page.getByRole("button", { name: "Развернуть" }).click();
   await page.getByRole("combobox").selectOption({ index: 1 });
-  await expect(page.getByRole("button", { name: /Вернуться в режим учителя/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /В режим учителя/i })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/09-view-panel-parent.png`, fullPage: true });
-  await page.getByRole("button", { name: /Вернуться в режим учителя/i }).click();
-  await expect(page.getByText("Сводка «Светофор»")).toBeVisible();
+  await page.getByRole("button", { name: /В режим учителя/i }).click();
+  await expect(page.getByText(/Ведомость класса/)).toBeVisible();
 });

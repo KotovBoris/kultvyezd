@@ -33,17 +33,15 @@ export default function App() {
     }
   }
 
-  // Автоопределение роли: если открыт контекст родителя или MAX-профиль привязан к ребёнку.
+  // Роль: контекст ссылки ?startapp=<student_id> либо привязка MAX-профиля.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // 1) явный контекст из ссылки ?startapp=<student_id>
       const param = startParam();
       if (param && /^\d+$/.test(param)) {
         setSession({ role: "parent", studentId: Number(param) });
         return;
       }
-      // 2) MAX-профиль: ищем привязку по user_id (реалистичный сценарий MAX)
       const uid = currentUserId();
       if (uid) {
         try {
@@ -58,7 +56,7 @@ export default function App() {
             });
           }
         } catch {
-          /* не привязан — остаёмся в роли учителя */
+          /* не привязан — остаёмся учителем */
         }
       }
     })();
@@ -71,11 +69,10 @@ export default function App() {
     reload();
   }, []);
 
-  // Экран родителя (по контексту или по привязке MAX-профиля)
   if (session.role === "parent" && session.studentId) {
     return (
       <div className="kv-app">
-        <Header />
+        <AppHeader />
         <ParentScreen
           studentId={session.studentId}
           studentName={session.resolvedStudentName ?? undefined}
@@ -88,7 +85,7 @@ export default function App() {
 
   return (
     <div className="kv-app">
-      <Header />
+      <AppHeader />
       {error && (
         <div className="kv-alert err">
           {error}
@@ -141,7 +138,19 @@ export default function App() {
   );
 }
 
-/** Панель просмотра для ручной проверки вне мессенджера MAX. */
+/** Шапка бланка: печать-логотип, название, подзаголовок-строка. */
+function AppHeader() {
+  return (
+    <div className="kv-header">
+      <div className="kv-logo">КВ</div>
+      <div>
+        <p className="kv-title">КультВыезд</p>
+        <p className="kv-subtitle">Организация школьных культурных выездов · MAX</p>
+      </div>
+    </div>
+  );
+}
+
 function ViewPanel({
   classes,
   onChange,
@@ -168,16 +177,16 @@ function ViewPanel({
   return (
     <div className="kv-card kv-viewpanel">
       <div className="kv-row">
-        <b>🔎 Режим просмотра (вне MAX)</b>
+        <b>Режим просмотра (вне MAX)</b>
         <button className="kv-btn ghost" onClick={() => setOpen((v) => !v)}>
           {open ? "Свернуть" : "Развернуть"}
         </button>
       </div>
       {open && (
         <>
-          <p className="kv-muted">
-            Ручная проверка без мессенджера: выберите родителя, чтобы открыть его экран,
-            и сбросьте демо для повторного прогона сценария.
+          <p className="kv-muted" style={{ marginTop: 8 }}>
+            Ручная проверка без мессенджера: откройте экран родителя и сбросьте демо для повторного
+            прохода сценария.
           </p>
           <div className="kv-filters">
             <select
@@ -223,28 +232,16 @@ function SkeletonLoader() {
   );
 }
 
-function Header() {
-  return (
-    <div className="kv-header">
-      <div className="kv-logo">КВ</div>
-      <div>
-        <p className="kv-title">КультВыезд</p>
-        <p className="kv-subtitle">Организация школьных культурных выездов в MAX</p>
-      </div>
-    </div>
-  );
-}
-
 function Footer() {
   const inside = isInsideMax();
   return (
     <div className="kv-footer-note">
-      Платформа: <b>{platform()}</b> · устройство: <b>{deviceName()}</b> · MAX: <b>{maxVersion()}</b>
-      {!inside && <> · запущено вне MAX (веб-проверка)</>}
-      {startParam() && <> · контекст: <b>{startParam()}</b></>}
+      <span className="kv-data">платформа {platform()}</span> · {deviceName()} · MAX {maxVersion()}
+      {!inside && <> · запущено вне MAX</>}
+      {startParam() && <> · контекст {startParam()}</>}
       <br />
-      Данные каталога — модельные (снапшот PRO.Культура.РФ / «Пушкинская карта», г. Казань).
-      Оплата билетов происходит напрямую на сайте учреждения культуры.
+      Данные каталога — модельные (снапшот PRO.Культура.РФ / «Пушкинская карта»). Оплата билетов —
+      напрямую на сайте учреждения культуры.
     </div>
   );
 }
