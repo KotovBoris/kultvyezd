@@ -132,7 +132,8 @@ docker compose up --build
 | `MAX_WEBHOOK_URL` / `MAX_WEBHOOK_SECRET` | для webhook | — | адрес и секрет вебхука |
 | `MAX_CA_BUNDLE` | нет | `/certs/ca-bundle.pem` | PEM сертификатов Минцифры |
 | `MAX_TLS_INSECURE` | нет | `0` | `1` — отключить проверку TLS (только демо) |
-| `DATABASE_URL` | нет | `sqlite:////app/data/kultvyezd.db` | строка подключения к БД |
+| `DATABASE_URL` | нет | `sqlite:////app/data/kultvyezd.db` | строка подключения к БД (можно Postgres) |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | для Postgres | `kultvyezd` / `kultvyezd` / — | доступы контейнера `db` (профиль `postgres`) |
 | `MINIAPP_BASE_URL` / `PUBLIC_BASE_URL` | нет | `http://localhost:8080` | базовые адреса для ссылок |
 | `AUTO_SEED` | нет | `true` | сидирование модельными данными при старте |
 | `LOG_LEVEL` | нет | `INFO` | уровень логов |
