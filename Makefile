@@ -1,10 +1,12 @@
 # КультВыезд — частые команды. Запуск: make <цель>
-.PHONY: help up down reset logs test test-fast shots doctor presentation lint
+.PHONY: help up down reset logs test test-fast shots doctor presentation lint up-postgres down-postgres
 
 help:
 	@echo "КультВыезд — доступные команды:"
-	@echo "  make up            — поднять всё (docker compose up --build)"
-	@echo "  make down          — остановить"
+	@echo "  make up              — поднять всё на SQLite (дефолт)"
+	@echo "  make up-postgres     — поднять всё на PostgreSQL (тот же код)"
+	@echo "  make down            — остановить"
+	@echo "  make down-postgres   — остановить и удалить данные Postgres"
 	@echo "  make reset         — сбросить демо-выезд к исходному состоянию"
 	@echo "  make logs          — логи backend (поток)"
 	@echo "  make test          — полный прогон (pytest+vitest+E2E+docker+UI)"
@@ -15,10 +17,18 @@ help:
 
 up:
 	docker compose up -d --build
+	@echo "БД: SQLite (файл в томе kultvyezd-data)"
 	@echo "mini-app: http://localhost:8080   Swagger: http://localhost:8080/docs"
+
+up-postgres:
+	DATABASE_URL="postgresql+psycopg2://kultvyezd:kultvyezd@db:5432/kultvyezd" docker compose --profile postgres up -d --build
+	@echo "БД: PostgreSQL (контейнер db, том kultvyezd-pg)"
 
 down:
 	docker compose down
+
+down-postgres:
+	docker compose --profile postgres down
 
 reset:
 	curl -s -X POST http://localhost:8080/api/v1/admin/reset-demo | python3 -m json.tool || true
