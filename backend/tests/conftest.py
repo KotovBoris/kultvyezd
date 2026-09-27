@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-_TMP_DIR = Path(tempfile.mkdtemp(prefix="kultvyezd-tests-"))
+_TMP_DIR = Path(tempfile.mkdtemp(prefix="classgo-tests-"))
 os.environ.setdefault("DATABASE_URL", f"sqlite:///{_TMP_DIR / 'test.db'}")
 os.environ["MAX_BOT_TOKEN"] = ""
 os.environ["MAX_BOT_MODE"] = "off"
@@ -27,6 +27,15 @@ from app.main import app  # noqa: E402
 def client() -> TestClient:
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture()
+def session():
+    """Сессия БД приложения — для проверок, которые смотрят данные напрямую."""
+    from app.db import Session as _Session, engine as _engine
+
+    with _Session(_engine) as s:
+        yield s
 
 
 @pytest.fixture()

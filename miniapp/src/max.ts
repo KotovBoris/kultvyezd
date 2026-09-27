@@ -69,6 +69,20 @@ export function currentUserId(): number | null {
 }
 
 /**
+ * id чата MAX, из которого открыт мини-апп: нужен, чтобы опубликовать карточку
+ * выезда именно в чат класса (UC-3). Внутри MAX берём из initDataUnsafe().chat,
+ * вне MAX (веб-проверка) — из ?chat_id=..., иначе null (кнопка публикации
+ * предложит ввести id вручную).
+ */
+export function currentChatId(): number | null {
+  const fromBridge = initDataUnsafe()?.chat?.id;
+  if (fromBridge) return fromBridge;
+  const url = new URL(window.location.href);
+  const q = url.searchParams.get("chat_id");
+  return q && /^-?\d+$/.test(q) ? Number(q) : null;
+}
+
+/**
  * Скачивание файла.
  * ВАЖНО: нативный WebApp.downloadFile существует и в обычном браузере (библиотека
  * MAX Bridge подключена всегда), но по документации MAX «в браузере метод не работает»

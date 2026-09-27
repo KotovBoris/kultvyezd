@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     MAX_TLS_INSECURE: bool = False
 
     # --- Приложение ---
-    DATABASE_URL: str = "sqlite:///./data/kultvyezd.db"
+    DATABASE_URL: str = "sqlite:///./data/classgo.db"
     # Публичный базовый адрес mini-app (для ссылок open_app из бота)
     MINIAPP_BASE_URL: str = "http://localhost:8080"
     # База, с которой генерируются абсолютные ссылки в API-ответах

@@ -1,4 +1,4 @@
-"""Доменная модель «КультВыезд» (по разделу 3 Архитектуры).
+"""Доменная модель «ClassGo» (по разделу 3 Архитектуры).
 
 Ключевые сущности: класс → ученики → контакты родителей, и выезд → участники.
 Статус согласия и билета хранится на участнике выезда (ExcursionParticipant),
@@ -147,6 +147,10 @@ class ExcursionParticipant(SQLModel, table=True):
     signed_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None
     ticket_number: Optional[str] = None
+    # Согласие законного представителя на обработку ПДн ребёнка (152-ФЗ):
+    # юридическая чистота пакета документов + отдельный след в аудите.
+    pdn_consent_at: Optional[datetime] = None
+    pdn_consent_by: Optional[str] = None
 
     excursion: Optional[Excursion] = Relationship(back_populates="participants")
     student: Optional[Student] = Relationship()
@@ -178,11 +182,18 @@ class DocumentArtifact(SQLModel, table=True):
 
 
 class BotLinkCode(SQLModel, table=True):
-    """Одноразовый код привязки родителя к ученику из mini-app (диплинк в бота)."""
+    """Одноразовый код привязки родителя к ученику из mini-app (диплинк в бота).
+
+    ``parent_phone``/``role`` указывают, какой именно контакт (из нескольких
+    у ученика) должен быть привязан — это и есть поддержка сценария
+    «два родителя»: мама и папа получают отдельные коды и привязываются к
+    своим контактам, а не к «первому попавшемуся».
+    """
 
     id: Optional[int] = Field(default=None, primary_key=True)
     code: str = Field(index=True)
     student_id: int
     parent_phone: str = ""
+    role: str = ""
     used: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)

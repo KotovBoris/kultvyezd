@@ -64,6 +64,62 @@ describe("api client", () => {
     expect(api.exportOrderUrl(3, "pdf")).toBe("/api/v1/excursions/3/export-order?fmt=pdf");
   });
 
+  it("exportOrderUrl: добавляет выбранный состав приложений (attach)", () => {
+    expect(api.exportOrderUrl(3, "docx", ["route", "gibdd"]))
+      .toBe("/api/v1/excursions/3/export-order?fmt=docx&attach=route,gibdd");
+  });
+
+  it("attachments: GET каталог приложений пакета документов", async () => {
+    (fetch as any).mockResolvedValue(jsonResponse({ attachments: [{ key: "students", title: "Список" }] }));
+    const r = await api.attachments();
+    expect((fetch as any).mock.calls[0][0]).toBe("/api/v1/documents/attachments");
+    expect(r.attachments[0].key).toBe("students");
+  });
+
+  it("sendOrder: POST send-order с chat_id/fmt/attach", async () => {
+    (fetch as any).mockResolvedValue(jsonResponse({ delivered: true, message: "ok" }));
+    const r = await api.sendOrder(5, { chatId: -700, fmt: "pdf", attach: ["route"] });
+    const [url, init] = (fetch as any).mock.calls[0];
+    expect(url).toBe("/api/v1/excursions/5/send-order?chat_id=-700&fmt=pdf&attach=route");
+    expect(init.method).toBe("POST");
+    expect(r.delivered).toBe(true);
+  });
+
+  it("importClass: POST multipart на /classes/import с query-параметрами класса", async () => {
+    (fetch as any).mockResolvedValue(
+      jsonResponse({ class_id: 9, title: "9-А", students_created: 24, parents_created: 26, skipped_rows: [] }),
+    );
+    const file = new File(["ФИО"], "class.csv", { type: "text/csv" });
+    const r = await api.importClass(file, { grade: "9", letter: "А", school_number: "12" });
+    const [url, init] = (fetch as any).mock.calls[0];
+    expect(url).toContain("/api/v1/classes/import?");
+    expect(url).toContain("grade=9");
+    expect(url).toContain("school_number=12");
+    expect(init.method).toBe("POST");
+    // FormData, а не JSON: иначе ломается multipart-boundary
+    expect(init.body).toBeInstanceOf(FormData);
+    expect(r.students_created).toBe(24);
+  });
+
+  it("publish: POST /excursions/{id}/publish?chat_id=...", async () => {
+    (fetch as any).mockResolvedValue(jsonResponse({ ok: true, chat_id: -700 }));
+    const r = await api.publish(5, -700);
+    const [url, init] = (fetch as any).mock.calls[0];
+    expect(url).toBe("/api/v1/excursions/5/publish?chat_id=-700");
+    expect(init.method).toBe("POST");
+    expect(r.ok).toBe(true);
+  });
+
+  it("linkCode: необязательные parent_phone/role попадают в query, пустые опускаются", async () => {
+    (fetch as any).mockResolvedValue(jsonResponse({ code: "c", deep_link: "d" }));
+    await api.linkCode(4, { parent_phone: "+79001110011", role: "Мама" });
+    expect((fetch as any).mock.calls[0][0]).toBe(
+      "/api/v1/students/4/link-code?parent_phone=%2B79001110011&role=%D0%9C%D0%B0%D0%BC%D0%B0",
+    );
+    await api.linkCode(4);
+    expect((fetch as any).mock.calls[1][0]).toBe("/api/v1/students/4/link-code");
+  });
+
   it("ошибка: non-ok выбрасывает с detail", async () => {
     (fetch as any).mockResolvedValue(jsonResponse({ detail: "Выезд не найден" }, 404));
     await expect(api.dashboard(999)).rejects.toThrow("Выезд не найден");

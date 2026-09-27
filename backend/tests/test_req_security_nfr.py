@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 
 from conftest import make_excursion
 
-REPO = Path(__file__).resolve().parents[2]  # .../kultvyezd
+REPO = Path(__file__).resolve().parents[2]  # .../classgo
 
 
 def _tracked_files() -> list[str]:

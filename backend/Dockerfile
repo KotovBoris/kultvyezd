@@ -1,4 +1,4 @@
-# КультВыезд — backend (FastAPI + MAX-адаптер). Модульный монолит.
+# ClassGo — backend (FastAPI + MAX-адаптер). Модульный монолит.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

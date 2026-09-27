@@ -2,7 +2,7 @@
 
 Платформа MAX использует **сертификаты Минцифры России**. Если контейнеру не
 доверяет им, обращения к `platform-api2.max.ru` падают с ошибкой
-`CERTIFICATE_VERIFY_FAILED` (это видно в логе backend: `kultvyezd.max`).
+`CERTIFICATE_VERIFY_FAILED` (это видно в логе backend: `classgo.max`).
 
 ## Как починить (любой из способов)
 

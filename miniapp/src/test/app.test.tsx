@@ -9,6 +9,7 @@ vi.mock("../max", () => ({
   haptic: vi.fn(),
   requestContact: vi.fn(async () => null),
   isInsideMax: () => false,
+  currentChatId: () => null,
   platform: () => "web",
   deviceName: () => "browser",
   maxVersion: () => "test",
@@ -25,9 +26,16 @@ const apiMock = vi.hoisted(() => ({
   meta: vi.fn(),
   remind: vi.fn(),
   generateOrder: vi.fn(),
+  publish: vi.fn(),
+  importClass: vi.fn(),
+  attachments: vi.fn(async () => ({ attachments: [] })),
+  sendOrder: vi.fn(),
   parentContext: vi.fn(async () => ({ max_user_id: 0, children: [], found: false })),
   resetDemo: vi.fn(async () => ({ excursion_id: 1, reset_participants: 0 })),
   exportOrderUrl: (id: number, fmt: string) => `/x/${id}/${fmt}`,
+  participantsCsvUrl: (id: number) => `/api/v1/excursions/${id}/participants.csv`,
+  calendarIcsUrl: (id: number) => `/api/v1/excursions/${id}/calendar.ics`,
+  emergencyContacts: vi.fn(),
 }));
 vi.mock("../api", () => ({ api: apiMock }));
 
@@ -48,9 +56,10 @@ describe("App", () => {
     apiMock.classes.mockResolvedValue([]);
     apiMock.dashboard.mockResolvedValue({ excursion, summary: { GREEN: 0, YELLOW: 0, GREY: 0, RED: 0 }, progress_percent: 0, participants: [] });
     render(<App />);
-    expect(screen.getByText("КультВыезд")).toBeInTheDocument();
+    expect(screen.getByText("ClassGo")).toBeInTheDocument();
     await waitFor(() => expect(apiMock.excursions).toHaveBeenCalled());
-    expect(await screen.findByText("Экскурсия в Кремль")).toBeInTheDocument();
+    // активный выезд виден и в hero, и в журнале — поэтому findAll
+    expect((await screen.findAllByText("Экскурсия в Кремль")).length).toBeGreaterThan(0);
   });
 
   it("UI-2: клик по «Каталог событий» запрашивает каталог", async () => {
@@ -68,5 +77,31 @@ describe("App", () => {
     apiMock.classes.mockRejectedValue(new Error("бэкенд недоступен"));
     render(<App />);
     expect(await screen.findByText(/Не удалось загрузить данные/i)).toBeInTheDocument();
+  });
+
+  it("UI-16: вкладка «Импорт класса» открывает экран заведения класса", async () => {
+    apiMock.excursions.mockResolvedValue([]);
+    apiMock.classes.mockResolvedValue([]);
+    render(<App />);
+    await waitFor(() => expect(apiMock.classes).toHaveBeenCalled());
+    await userEvent.click(screen.getByText("Импорт класса"));
+    expect(await screen.findByText(/Заведение класса/i)).toBeInTheDocument();
+    // зона выбора файла — label + скрытый input, доступен по aria-label
+    expect(screen.getByLabelText(/Выбрать файл списка класса/i)).toBeInTheDocument();
+  });
+
+  it("ST-5: футер открывает экран «Прозрачность: данные и согласие»", async () => {
+    apiMock.excursions.mockResolvedValue([excursion]);
+    apiMock.classes.mockResolvedValue([]);
+    apiMock.dashboard.mockResolvedValue({
+      excursion, summary: { GREEN: 0, YELLOW: 0, GREY: 0, RED: 0 }, progress_percent: 0, participants: [],
+    });
+    render(<App />);
+    await waitFor(() => expect(apiMock.excursions).toHaveBeenCalled());
+    await userEvent.click(await screen.findByRole("button", { name: /Прозрачность: данные и согласие/i }));
+    expect(await screen.findByRole("region", { name: /Прозрачность: данные и согласие/i })).toBeInTheDocument();
+    expect(screen.getByText(/Пределы ПЭП/i)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Вернуться/i }));
+    expect(screen.queryByRole("region", { name: /Прозрачность: данные и согласие/i })).not.toBeInTheDocument();
   });
 });

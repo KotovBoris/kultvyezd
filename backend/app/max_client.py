@@ -17,7 +17,7 @@ import httpx
 
 from .config import get_settings
 
-log = logging.getLogger("kultvyezd.max")
+log = logging.getLogger("classgo.max")
 
 
 class MaxClient:
@@ -70,6 +70,55 @@ class MaxClient:
             body["format"] = fmt
         return await self._request("POST", "/messages", params=params, json=body)
 
+    async def upload_file(self, content: bytes, filename: str, upload_type: str = "file") -> str | None:
+        """Загружает файл в MAX и возвращает его attachment-token.
+
+        Схема MAX (dev.max.ru): POST /uploads?type=... возвращает URL для загрузки,
+        затем файл загружается на этот URL (multipart, поле ``data``), а в ответ
+        приходит ``token``. Токен передаётся в POST /messages как вложение
+        ``{"type": "file", "payload": {"token": ...}}``.
+        Внешние ссылки в MAX запрещены — файл обязательно проходит через загрузку.
+        """
+        if not self.enabled:
+            log.warning("MAX client disabled (нет токена): пропущена загрузка файла %s", filename)
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, verify=self.verify) as client:
+                init = await client.post(
+                    f"{self.base}/uploads", params={"type": upload_type}, headers=self._headers()
+                )
+                if init.status_code >= 400:
+                    log.error("MAX POST /uploads -> %s: %s", init.status_code, init.text[:300])
+                    return None
+                payload = init.json()
+                upload_url = payload.get("url")
+                if not upload_url:
+                    log.error("MAX /uploads не вернул url: %s", payload)
+                    return None
+                # Загрузка идёт БЕЗ заголовка Content-Type: application/json —
+                # иначе ломается multipart-boundary. Авторизация передаётся заголовком.
+                resp = await client.post(
+                    upload_url,
+                    files={"data": (filename, content)},
+                    headers={"Authorization": self.token},
+                )
+                if resp.status_code >= 400:
+                    log.error("MAX upload %s -> %s: %s", upload_url, resp.status_code, resp.text[:300])
+                    return None
+                data = resp.json() if resp.content else {}
+                return data.get("token")
+        except Exception as exc:  # noqa: BLE001 — не роняем сервис из-за внешнего API
+            log.error("MAX загрузка файла %s ошибка: %s", filename, exc)
+            return None
+
+    async def send_document(self, *, filename: str, token: str, caption: str = "",
+                            chat_id: int | None = None, user_id: int | None = None) -> dict[str, Any] | None:
+        """Отправляет ранее загруженный файл сообщением (вложение типа ``file``)."""
+        attachment = {"type": "file", "payload": {"token": token, "filename": filename}}
+        return await self.send_message(
+            chat_id=chat_id, user_id=user_id, text=caption, attachments=[attachment]
+        )
+
     async def set_commands(self, commands: list[dict[str, str]]) -> dict[str, Any] | None:
         """PATCH /me/commands — регистрирует команды бота (MAX Bot API, раздел bots).
 
@@ -116,7 +165,7 @@ class MaxClient:
 # ------------------------------------------------------------------ helpers
 # Команды бота, регистрируемые в MAX через PATCH /me/commands (подсказки в мессенджере)
 BOT_COMMANDS: list[dict[str, str]] = [
-    {"name": "start", "description": "Начать работу с ботом «КультВыезд»"},
+    {"name": "start", "description": "Начать работу с ботом «ClassGo»"},
     {"name": "trips", "description": "Мои выезды и статусы по ребёнку"},
     {"name": "help", "description": "Как открыть мини-приложение"},
 ]

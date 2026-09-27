@@ -1,4 +1,4 @@
-# КультВыезд — запуск всех локальных компонентов одной командой:
+# ClassGo — запуск всех локальных компонентов одной командой:
 #   docker compose up --build
 #
 # Компоненты (модульный монолит, логически разделён):
@@ -15,19 +15,19 @@
 services:
   # ---- PostgreSQL (опционально) ------------------------------------------
   # Включается профилем:  docker compose --profile postgres up -d --build
-  # и DATABASE_URL=postgresql+psycopg2://kultvyezd:kultvyezd@db:5432/kultvyezd в .env
+  # и DATABASE_URL=postgresql+psycopg2://classgo:classgo@db:5432/classgo в .env
   # По умолчанию используется SQLite (ноль настройки, файл в томе).
   db:
     image: postgres:16-alpine
     profiles: ["postgres"]
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-kultvyezd}
-      POSTGRES_USER: ${POSTGRES_USER:-kultvyezd}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kultvyezd}
+      POSTGRES_DB: ${POSTGRES_DB:-classgo}
+      POSTGRES_USER: ${POSTGRES_USER:-classgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-classgo}
     volumes:
-      - kultvyezd-pg:/var/lib/postgresql/data
+      - classgo-pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kultvyezd} -d ${POSTGRES_DB:-kultvyezd}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-classgo} -d ${POSTGRES_DB:-classgo}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -36,14 +36,14 @@ services:
   backend:
     build:
       context: ./backend
-    image: kultvyezd-backend:1.0.0
+    image: classgo-backend:1.0.0
     depends_on:
       # db требуется только при включённом профиле postgres
       db:
         condition: service_healthy
         required: false
     environment:
-      DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kultvyezd.db}"
+      DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/classgo.db}"
       AUTO_SEED: "${AUTO_SEED:-true}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       # MAX: токен задаётся в .env; без него бот не запускается, REST/mini-app работают
@@ -59,7 +59,7 @@ services:
       MINIAPP_BASE_URL: "${MINIAPP_BASE_URL:-http://localhost:8080}"
       PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:8080}"
     volumes:
-      - kultvyezd-data:/app/data
+      - classgo-data:/app/data
       # Каталог с корневым сертификатом Минцифры (если файл положили — смонтируется)
       - ./certs:/certs:ro
     ports:
@@ -75,7 +75,7 @@ services:
   miniapp:
     build:
       context: ./miniapp
-    image: kultvyezd-miniapp:1.0.0
+    image: classgo-miniapp:1.0.0
     depends_on:
       - backend
     ports:
@@ -83,6 +83,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  kultvyezd-data:
+  classgo-data:
   # Данные PostgreSQL (используется только с профилем postgres)
-  kultvyezd-pg:
+  classgo-pg:

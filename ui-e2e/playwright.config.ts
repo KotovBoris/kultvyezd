@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * UI-харнесс «КультВыезд».
+ * UI-харнесс ClassGo.
  * Ожидает поднятый стек: docker compose up (mini-app на http://localhost:8080).
  * Прогоняет интерфейс на desktop и мобильных вьюпортах, делает скриншоты.
  */

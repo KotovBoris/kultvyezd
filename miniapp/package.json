@@ -1,9 +1,9 @@
 {
-  "name": "kultvyezd-miniapp",
+  "name": "classgo-miniapp",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Мини-приложение «КультВыезд» для MAX (React + MAX UI + MAX Bridge)",
+  "description": "Мини-приложение ClassGo для MAX (React + MAX UI + MAX Bridge)",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

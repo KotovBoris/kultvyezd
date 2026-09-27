@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Единый прогон ВСЕХ тестов «КультВыезд».
+# Единый прогон ВСЕХ тестов «ClassGo».
 #
 #   ./scripts/run_all_tests.sh          # всё
 #   ./scripts/run_all_tests.sh --fast   # без docker-стека (pytest + vitest + agent e2e)

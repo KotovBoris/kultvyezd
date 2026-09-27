@@ -25,6 +25,9 @@ class CultureEventOut(BaseModel):
     address: str
     description: str
     source: str
+    # Явное поле вместо разбора «12+» на клиенте: нужно авто-фильтру
+    # «подходит моему классу по возрасту». Аддитивно, старые тесты не ломает.
+    age_min: int = 0
 
 
 # ------------------------------------------------------------------ классы
@@ -80,6 +83,9 @@ class ParticipantRow(BaseModel):
     signed_at: datetime | None = None
     rejection_reason: str | None = None
     ticket_number: str | None = None
+    # Согласие законного представителя на обработку ПДн (152-ФЗ)
+    pdn_consent_at: datetime | None = None
+    pdn_consent_by: str | None = None
 
 
 class ExcursionOut(BaseModel):
@@ -116,6 +122,9 @@ class ConsentRequest(BaseModel):
     parent_name: str = ""
     reason: str | None = None
     source: str = "miniapp"
+    # Согласие на обработку персональных данных (152-ФЗ) — обязательный чекбокс
+    # у родителя перед отправкой согласия на выезд.
+    pdn_consent: bool = False
     # Стартовые параметры MAX Bridge (window.WebApp.initData). Проверяются только
     # если включена настройка MAX_VALIDATE_INIT_DATA (в проде).
     init_data: str | None = None
@@ -149,6 +158,8 @@ class DocumentOut(BaseModel):
     pdf_url: str
     version: int
     generated_at: datetime
+    # Состав включённых приложений (ключи из documents.ATTACHMENTS)
+    attachments: list[str] = Field(default_factory=list)
 
 
 class LinkCodeOut(BaseModel):

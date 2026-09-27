@@ -86,7 +86,7 @@ async def test_BOT_1_bot_started_greeting() -> None:
 async def test_BOT_2_start_command() -> None:
     fake = FakeClient()
     await BotService(client=fake).handle_update(_message("/start"))
-    assert fake.sent and "КультВыезд" in fake.sent[-1]["text"]
+    assert fake.sent and "ClassGo" in fake.sent[-1]["text"]
 
 
 @pytest.mark.asyncio

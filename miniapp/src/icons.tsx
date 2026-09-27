@@ -1,5 +1,5 @@
 /**
- * Иконки — тонкие stroke-SVG в 1.5px, под стиль «документ».
+ * Иконки — тонкие stroke-SVG в 1.5px, под стиль ClassGo.
  * Заменяют emoji (эмодзи в интерфейсе — признак того, что иконографию не рисовали).
  * Все иконки наследуют цвет и размер через currentColor / prop size.
  */
@@ -78,5 +78,19 @@ export const IconSearch = ({ size = 14, className }: P) => (
   <svg {...base(size)} className={className}>
     <circle cx="7" cy="7" r="4.2" />
     <path d="M10.2 10.2 14 14" />
+  </svg>
+);
+
+/** Трубка — экстренные телефоны/связь с родителями в день выезда. */
+export const IconPhone = ({ size = 14, className }: P) => (
+  <svg {...base(size)} className={className}>
+    <path d="M4 2.6h2.4l1 2.6-1.4 1a8 8 0 0 0 3.8 3.8l1-1.4 2.6 1v2.4a1.4 1.4 0 0 1-1.5 1.4A10.6 10.6 0 0 1 2.6 4.1 1.4 1.4 0 0 1 4 2.6Z" />
+  </svg>
+);
+
+/** Рупор — публикация объявления в чат класса. */
+export const IconMegaphone = ({ size = 14, className }: P) => (
+  <svg {...base(size)} className={className}>
+    <path d="M3 6.5v3l7 3V3.5l-7 3M10 5.5l3-1v7l-3-1M5.5 9.8V13h2v-2.4" />
   </svg>
 );

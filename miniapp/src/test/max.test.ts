@@ -5,6 +5,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   bridge,
+  currentChatId,
   deviceName,
   downloadFile,
   isInsideMax,
@@ -93,5 +94,23 @@ describe("MAX Bridge", () => {
     setWebApp({ initData: "x" });
     expect(() => downloadFile("http://x", "f")).not.toThrow();
     expect(() => openLink("http://x")).not.toThrow();
+  });
+
+  it("BRG-11: currentChatId берётся из initDataUnsafe().chat внутри MAX", () => {
+    window.history.replaceState({}, "", "/");
+    setWebApp({ initData: "x", initDataUnsafe: { chat: { id: -700, type: "group" } } });
+    expect(currentChatId()).toBe(-700);
+  });
+
+  it("BRG-11: вне MAX currentChatId берётся из ?chat_id", () => {
+    window.history.replaceState({}, "", "/?chat_id=-7123456789");
+    expect(currentChatId()).toBe(-7123456789);
+  });
+
+  it("BRG-11: без chat внутри MAX и без query — null (graceful вне MAX)", () => {
+    window.history.replaceState({}, "", "/");
+    expect(currentChatId()).toBeNull();
+    setWebApp({ initData: "x", initDataUnsafe: { user: { id: 1 } } });
+    expect(currentChatId()).toBeNull();
   });
 });

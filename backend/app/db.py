@@ -19,7 +19,7 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 
-from sqlalchemy import event
+from sqlalchemy import event, inspect, text
 from sqlalchemy.pool import QueuePool
 from sqlmodel import Session, SQLModel, create_engine
 
@@ -60,11 +60,36 @@ if IS_SQLITE:
         cur.close()
 
 
+def _ensure_columns() -> None:
+    """Аддитивная миграция: добавляет в существующие таблицы недостающие колонки.
+
+    ``create_all`` создаёт только отсутствующие таблицы и НЕ меняет уже созданные,
+    поэтому после добавления полей в модель (например, ``pdn_consent_at`` у
+    ``ExcursionParticipant``) старый том SQLite/PostgreSQL остаётся без колонок и
+    запросы падают. Здесь мы добавляем недостающие nullable-колонки через
+    ``ALTER TABLE ... ADD COLUMN`` — безопасно и без потери данных (демо-уровень,
+    для продакшена — полноценный Alembic).
+    """
+    inspector = inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table in SQLModel.metadata.sorted_tables:
+            if table.name not in existing_tables:
+                continue
+            present = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in present:
+                    continue
+                col_type = column.type.compile(engine.dialect)
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {col_type}'))
+
+
 def init_db() -> None:
     # Импорт моделей обязателен до create_all, чтобы метаданные были зарегистрированы.
     from . import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _ensure_columns()
 
 
 def get_session() -> Iterator[Session]:

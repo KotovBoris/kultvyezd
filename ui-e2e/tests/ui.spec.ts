@@ -1,5 +1,5 @@
 /**
- * UI-проверки и скриншоты mini-app «КультВыезд» (docs/REQUIREMENTS.md, UI-*).
+ * UI-проверки и скриншоты mini-app ClassGo (docs/REQUIREMENTS.md, UI-*).
  *
  * Требует поднятый стек:  docker compose up -d --build
  * Вне MAX интерфейс работает с graceful-fallback, поэтому здесь можно
@@ -36,7 +36,7 @@ async function injectMaxBridge(page: Page, userId = 424242, platform = "ios") {
 
 test("UI-1/UI-2: учитель — шапка, вкладки, каталог", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("КультВыезд")).toBeVisible();
+  await expect(page.getByText("ClassGo")).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/01-teacher.png`, fullPage: true });
 
   await page.getByRole("button", { name: "Каталог событий" }).click();
@@ -52,7 +52,8 @@ test("UI-4/UI-5: создание выезда и переход к ведомо
   await page.getByRole("button", { name: "Каталог событий" }).click();
   await expect(page.getByText(/Каталог событий · Казань/)).toBeVisible();
 
-  // выбираем событие из списка «Выбор события»
+  // дождаться загрузки каталога: тогда появляется карточка «Выбор события»
+  await expect(page.getByText("Выбор события")).toBeVisible();
   const pickers = page.getByRole("combobox");
   await pickers.last().selectOption({ index: 1 });
   await expect(page.getByText("Оформление выезда")).toBeVisible();
@@ -73,7 +74,7 @@ test("UI-7/UI-8: формирование приказа и прямые ссы�
   await page.screenshot({ path: `${SHOTS}/05-order.png`, fullPage: true });
 });
 
-test("UI-9/UI-10: экран родителя по ?startapp и согласие", async ({ page }) => {
+test("UI-9/UI-10: экран родителя по ?startapp, подтверждение ПЭП и согласие", async ({ page }) => {
   // ученик №1 демо-класса
   await page.goto("/?startapp=1");
   await expect(page.getByText("Согласие законного представителя")).toBeVisible();
@@ -81,7 +82,12 @@ test("UI-9/UI-10: экран родителя по ?startapp и согласие
 
   const approve = page.getByRole("button", { name: /Отпускаю ребёнка/i }).first();
   if (await approve.isVisible().catch(() => false)) {
+    // ST-3: согласие (ПЭП) не уходит одним кликом — сначала шаг подтверждения
     await approve.click();
+    await expect(page.getByText(/Отправляю согласие\?/i)).toBeVisible();
+    // ST-6: без отдельного согласия на обработку ПДн (152-ФЗ) отправка заблокирована
+    await page.getByLabel(/обработку персональных данных/i).check();
+    await page.getByRole("button", { name: /Да, отправляю согласие/i }).click();
     await expect(page.getByText(/Согласие|уже подписано/i).first()).toBeVisible();
     await page.screenshot({ path: `${SHOTS}/07-parent-approved.png`, fullPage: true });
   }
@@ -96,9 +102,32 @@ test("BRG-7: внутри MAX показывается платформа и в�
   await page.screenshot({ path: `${SHOTS}/08-inside-max.png`, fullPage: true });
 });
 
-test("UI-14: режим просмотра вне MAX доступен", async ({ page }) => {
+test("UC-1: импорт класса из CSV в интерфейсе", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText(/Режим просмотра \(вне MAX\)/)).toBeVisible();
+  await page.getByRole("button", { name: "Импорт класса" }).click();
+  await expect(page.getByText(/Заведение класса/)).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/10-import.png`, fullPage: true });
+
+  // используем реальный пример из репозитория (artifacts/sample_class_import.csv)
+  await page.locator('input[type="file"]').setInputFiles("../artifacts/sample_class_import.csv");
+  await expect(page.getByText(/sample_class_import\.csv/)).toBeVisible();
+  await page.getByRole("button", { name: "Загрузить класс" }).click();
+  // показывается результат импорта: сколько учеников и родителей заведено
+  await expect(page.getByText("Учеников")).toBeVisible();
+  await expect(page.getByRole("button", { name: /К каталогу событий/i })).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/11-import-result.png`, fullPage: true });
+});
+
+test("UC-3: публикация выезда в чат класса из дашборда", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText(/Ведомость класса/)).toBeVisible();
+  await page.getByRole("button", { name: /Опубликовать в чат класса/i }).click();
+  // вне MAX id чата спрашиваем вручную
+  await page.getByLabel("id чата класса").fill("-7000000001");
+  await page.getByRole("button", { name: "Опубликовать", exact: true }).click();
+  // успех либо «бот выключен» — оба сообщения содержат «публикац»
+  await expect(page.getByText(/публикац/i)).toBeVisible();
+  await page.screenshot({ path: `${SHOTS}/12-publish.png`, fullPage: true });
 });
 
 test("UI-15: мобильная верстка без горизонтального переполнения", async ({ page }) => {
@@ -121,7 +150,7 @@ test("UI-15: мобильная верстка без горизонтально
 test("режим просмотра: открыть экран родителя и вернуться", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Развернуть" }).click();
-  await page.getByRole("combobox").selectOption({ index: 1 });
+  await page.getByLabel("Открыть экран родителя").selectOption({ index: 1 });
   await expect(page.getByRole("button", { name: /В режим учителя/i })).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/09-view-panel-parent.png`, fullPage: true });
   await page.getByRole("button", { name: /В режим учителя/i }).click();

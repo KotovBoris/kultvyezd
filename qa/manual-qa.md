@@ -9,9 +9,10 @@
 
 | Проверка | Команда | Результат |
 |---|---|---|
-| Модульные + интеграционные тесты ядра (13 шт.) | `cd backend && .venv313/bin/python -m pytest -q` | ✅ 13 passed |
-| Сквозной сценарий бота через эмулятор протокола MAX (14 шагов) | `./backend/.venv313/bin/python scripts/e2e_agent.py` | ✅ 14/14 |
-| Стек в Docker по HTTP (18 шагов) | `docker compose up -d --build && python3 scripts/e2e_docker.py` | ✅ 18/18 |
+| Модульные + интеграционные тесты ядра (189 шт.) | `cd backend && .venv313/bin/python -m pytest -q` | ✅ 189 passed |
+| Сквозной сценарий бота через эмулятор протокола MAX (15 проверок) | `./backend/.venv313/bin/python scripts/e2e_agent.py` | ✅ 15/15 |
+| Стек в Docker по HTTP (19 проверок) | `docker compose up -d --build && python3 scripts/e2e_docker.py` | ✅ 19/19 |
+| UI в браузере (Playwright, 9 × 2 вьюпорта) | `cd ui-e2e && npx playwright test` | ✅ 18/18 |
 | Подключение к реальному MAX (`GET /me`, long polling) | `docker compose logs backend` | ✅ `MAX polling запущен, бот: Хакатон МАХ 158` |
 
 ## 1. Проверка бота в живом MAX (нужен аккаунт MAX)
@@ -19,7 +20,7 @@
 **Что делать:**
 1. Открыть MAX, найти бота **@t158_hakaton_max_bot** (или перейти `https://max.ru/t158_hakaton_max_bot`).
 2. Нажать **«Начать»**.
-3. Убедиться, что пришло приветствие «👋 Здравствуйте! Это бот «КультВыезд»…» и две кнопки:
+3. Убедиться, что пришло приветствие «👋 Здравствуйте! Это бот «ClassGo»…» и две кнопки:
    «Открыть приложение» и «Мои выезды».
 
 **Ожидаемое:** приветствие + кнопки. **Возможная проблема:** если приложение поднято

@@ -3,9 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>КультВыезд — организация школьных культурных выездов</title>
-    <!-- MAX Bridge: официальная библиотека платформы (глобальный объект window.WebApp) -->
-    <script src="https://st.max.ru/js/max-web-app.js"></script>
+    <title>ClassGo — школьные выезды: согласия, билеты, приказ</title>
+    <!-- Соединение с MAX Bridge открываем заранее: сам скрипт 21 КБ и отвечает ~0.4 с -->
+    <link rel="preconnect" href="https://st.max.ru" crossorigin />
+    <link rel="dns-prefetch" href="https://st.max.ru" />
+    <!-- Кириллический сабсет Golos Text — предзагрузка, чтобы подмена шрифта
+         (font-display: swap) не сдвигала крупный заголовок hero (CLS). -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="./fonts/golos-text-400-cy.woff2"
+      crossorigin
+    />
+    <!-- MAX Bridge: официальная библиотека платформы (глобальный объект window.WebApp).
+         defer — скрипт не блокирует разбор и первую отрисовку; порядок с module-скриптом
+         приложения сохраняется (оба отложены, исполняются в порядке документа). -->
+    <script defer src="https://st.max.ru/js/max-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,4 +1,4 @@
-# КультВыезд — мини-приложение (React + MAX UI). Многоступенчатая сборка.
+# ClassGo — мини-приложение (React + MAX UI). Многоступенчатая сборка.
 FROM node:20-alpine AS build
 WORKDIR /app
 # .npmrc содержит legacy-peer-deps=true (пин React у @maxhub/max-ui)

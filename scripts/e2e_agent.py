@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Агентный E2E-харнесс «КультВыезд»: эмулятор протокола MAX + прогон сквозного сценария.
+"""Агентный E2E-харнесс «ClassGo»: эмулятор протокола MAX + прогон сквозного сценария.
 
 Зачем: реальный мессенджер MAX нельзя подключить в CI (нужен аккаунт и токен).
 Здесь поднимается ЭМУЛЯТОР MAX Bot API, полностью повторяющий контракт
@@ -68,8 +68,8 @@ class MaxEmulator(BaseHTTPRequestHandler):
         qs = urllib.parse.parse_qs(parsed.query)
         if parsed.path == "/me":
             return _json(self, 200, {
-                "user_id": 999999, "name": "КультВыезд (эмулятор)",
-                "username": "kultvyezd_emulator", "is_bot": True,
+                "user_id": 999999, "name": "ClassGo (эмулятор)",
+                "username": "classgo_emulator", "is_bot": True,
             })
         if parsed.path == "/updates":
             timeout = int(qs.get("timeout", ["0"])[0])
@@ -206,7 +206,7 @@ def main() -> int:
     threading.Thread(target=emulator.serve_forever, daemon=True).start()
     print(f"▶ эмулятор MAX: {emu_base}")
 
-    tmpdir = tempfile.mkdtemp(prefix="kultvyezd-e2e-")
+    tmpdir = tempfile.mkdtemp(prefix="classgo-e2e-")
     env = dict(os.environ)
     env.update({
         "DATABASE_URL": f"sqlite:///{tmpdir}/e2e.db",
@@ -214,7 +214,7 @@ def main() -> int:
         "MAX_BOT_TOKEN": "emulator-token",
         "MAX_BOT_MODE": "polling",
         "MAX_API_BASE": emu_base,
-        "MAX_BOT_USERNAME": "kultvyezd_emulator",
+        "MAX_BOT_USERNAME": "classgo_emulator",
         "PUBLIC_BASE_URL": api_base,
         "MINIAPP_BASE_URL": api_base,
         "LOG_LEVEL": "WARNING",

@@ -1,4 +1,4 @@
-# Стратегия тестирования «КультВыезд»
+# Стратегия тестирования «ClassGo»
 
 Тестирование полностью автоматизировано: ручное QA сведено к тому, что принципиально
 нельзя воспроизвести вне мессенджера MAX (см. [`qa/manual-qa.md`](../qa/manual-qa.md)).
@@ -40,12 +40,15 @@
 
 | Набор | Тестов | Статус |
 |---|---|---|
-| Backend (pytest) | 147 | ✅ |
-| Frontend (vitest) | 31 | ✅ |
+| Backend (pytest) | 189 | ✅ |
+| Frontend (vitest) | 83 | ✅ |
 | Агентный E2E (эмулятор MAX) | 15 | ✅ |
-| Docker-стек по HTTP | 18 | ✅ |
-| UI в браузере (Playwright, desktop + mobile) | 16 | ✅ |
-| **Итого** | **227 проверок** | ✅ |
+| Docker-стек по HTTP | 19 | ✅ |
+| UI в браузере (Playwright, desktop + mobile) | 9 × 2 = 18 | ✅ |
+| **Итого** | **324 проверки** | ✅ |
+
+Плюс нагрузочная проверка записи `scripts/race_check.py` (100 параллельных потоков) и
+замеры производительности `ui-e2e/perf/measure.mjs` (бюджеты — [`PERFORMANCE.md`](PERFORMANCE.md)).
 
 CI (GitHub Actions, `.github/workflows/ci.yml`) прогоняет backend, frontend и агентный E2E
 на каждый push и pull request — воспроизводимость подтверждается автоматически.

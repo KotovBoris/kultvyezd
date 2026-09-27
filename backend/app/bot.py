@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from sqlmodel import Session, select
 
@@ -32,8 +33,13 @@ from .models import (
     TrafficLight,
 )
 
-log = logging.getLogger("kultvyezd.bot")
+log = logging.getLogger("classgo.bot")
 settings = get_settings()
+
+
+def _digits(value: str | None) -> str:
+    """Только цифры телефона — для сравнения контактов в разных форматах."""
+    return "".join(ch for ch in (value or "") if ch.isdigit())
 
 
 class BotService:
@@ -70,7 +76,7 @@ class BotService:
             )
         else:
             text = (
-                "👋 Здравствуйте! Это бот «КультВыезд».\n\n"
+                "👋 Здравствуйте! Это бот «ClassGo».\n\n"
                 "Сервис помогает классному руководителю организовать школьный культурный выезд, "
                 "а вам — за минуту подтвердить участие ребёнка и оплатить билет напрямую в кассу музея.\n\n"
                 "Команды:\n"
@@ -206,6 +212,39 @@ class BotService:
         reject = callback_button("❌ Не сможет поехать", f"consent:{excursion.id}:{student_id}:REJECTED")
         return [inline_keyboard([[approve], [reject]])]
 
+    # ------------------------------------------------------------ документы
+    async def send_order_file(
+        self, excursion: Excursion, *, fmt: str = "docx", chat_id: int | None = None,
+        user_id: int | None = None, attachments: list[str] | None = None,
+    ) -> bool:
+        """Генерирует приказ и доставляет его файлом в чат/личку MAX.
+
+        Файл загружается через MAX ``POST /uploads`` (внешние ссылки мессенджер
+        запрещает) и отправляется сообщением с вложением типа ``file``. Возвращает
+        ``True`` только если сообщение реально ушло. При выключенном боте или сбое
+        загрузки — ``False``, файл остаётся доступен прямой ссылкой на скачивание.
+        """
+        from .documents import build_order_docx, build_order_pdf  # локальный импорт: нет цикла
+
+        with Session(engine) as session:
+            if fmt == "pdf":
+                content = build_order_pdf(session, excursion, attachments)
+            else:
+                content = build_order_docx(session, excursion, attachments)
+        ext = "pdf" if fmt == "pdf" else "docx"
+        filename = f"Приказ_выезд_{excursion.id}.{ext}"
+        token = await self.client.upload_file(content, filename)
+        if not token:
+            return False
+        caption = (
+            f"📄 Приказ по выезду «{excursion.title}» "
+            f"(от {datetime.utcnow().strftime('%d.%m.%Y %H:%M')} UTC)"
+        )
+        result = await self.client.send_document(
+            filename=filename, token=token, caption=caption, chat_id=chat_id, user_id=user_id
+        )
+        return result is not None
+
     # ------------------------------------------------------------ публикация
     async def publish_to_chat(self, excursion: Excursion, chat_id: int) -> dict | None:
         text = (
@@ -227,12 +266,25 @@ class BotService:
             link = session.exec(select(BotLinkCode).where(BotLinkCode.code == code, BotLinkCode.used == False)).first()  # noqa: E712
             if not link:
                 return False
-            parent = session.exec(
+            contacts = session.exec(
                 select(ParentContact).where(ParentContact.student_id == link.student_id)
-            ).first()
-            if parent:
-                parent.max_user_id = user_id
-                session.add(parent)
+            ).all()
+            parent = None
+            if link.parent_phone or link.role:
+                # код выдан под конкретный контакт (сценарий «два родителя»):
+                # ищем по телефону, затем по роли; если не нашли — НЕ привязываем первому
+                want = _digits(link.parent_phone)
+                if want:
+                    parent = next((c for c in contacts if _digits(c.phone_number) == want), None)
+                if parent is None and link.role:
+                    parent = next((c for c in contacts if (c.role or "").lower() == link.role.lower()), None)
+            else:
+                # fallback: код без указания контакта — привязываем первый, как раньше
+                parent = contacts[0] if contacts else None
+            if parent is None:
+                return False
+            parent.max_user_id = user_id
+            session.add(parent)
             link.used = True
             session.add(link)
             session.commit()
