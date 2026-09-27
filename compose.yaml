@@ -13,12 +13,37 @@
 # Секреты берутся из .env (см. .env.example). В репозитории токенов нет.
 
 services:
+  # ---- PostgreSQL (опционально) ------------------------------------------
+  # Включается профилем:  docker compose --profile postgres up -d --build
+  # и DATABASE_URL=postgresql+psycopg2://kultvyezd:kultvyezd@db:5432/kultvyezd в .env
+  # По умолчанию используется SQLite (ноль настройки, файл в томе).
+  db:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kultvyezd}
+      POSTGRES_USER: ${POSTGRES_USER:-kultvyezd}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kultvyezd}
+    volumes:
+      - kultvyezd-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kultvyezd} -d ${POSTGRES_DB:-kultvyezd}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
     image: kultvyezd-backend:1.0.0
+    depends_on:
+      # db требуется только при включённом профиле postgres
+      db:
+        condition: service_healthy
+        required: false
     environment:
-      DATABASE_URL: sqlite:////app/data/kultvyezd.db
+      DATABASE_URL: "${DATABASE_URL:-sqlite:////app/data/kultvyezd.db}"
       AUTO_SEED: "${AUTO_SEED:-true}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       # MAX: токен задаётся в .env; без него бот не запускается, REST/mini-app работают
@@ -59,3 +84,5 @@ services:
 
 volumes:
   kultvyezd-data:
+  # Данные PostgreSQL (используется только с профилем postgres)
+  kultvyezd-pg:
