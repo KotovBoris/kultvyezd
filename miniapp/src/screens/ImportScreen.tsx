@@ -67,7 +67,7 @@ export default function ImportScreen({ onImported }: { onImported: (classId: num
               value={grade}
               onChange={(e) => setGrade(e.target.value)}
               aria-label="Параллель"
-              style={{ width: 40, border: "none", outline: "none", background: "transparent", font: "inherit" }}
+              style={{ width: "3.5rem", border: "none", outline: "none", background: "transparent", font: "inherit" }}
             />
           </label>
           <label className="kv-chip">
@@ -77,7 +77,7 @@ export default function ImportScreen({ onImported }: { onImported: (classId: num
               value={letter}
               onChange={(e) => setLetter(e.target.value)}
               aria-label="Литера класса"
-              style={{ width: 28, border: "none", outline: "none", background: "transparent", font: "inherit" }}
+              style={{ width: "2.5rem", border: "none", outline: "none", background: "transparent", font: "inherit" }}
             />
           </label>
           <label className="kv-chip">
@@ -88,7 +88,7 @@ export default function ImportScreen({ onImported }: { onImported: (classId: num
               onChange={(e) => setSchoolNumber(e.target.value)}
               placeholder="№ гимназии"
               aria-label="Номер школы"
-              style={{ width: 110, border: "none", outline: "none", background: "transparent", font: "inherit" }}
+              style={{ width: "8rem", border: "none", outline: "none", background: "transparent", font: "inherit" }}
             />
           </label>
           <label className="kv-chip">
@@ -99,7 +99,7 @@ export default function ImportScreen({ onImported }: { onImported: (classId: num
               onChange={(e) => setTeacherName(e.target.value)}
               placeholder="ФИО"
               aria-label="Классный руководитель"
-              style={{ width: 150, border: "none", outline: "none", background: "transparent", font: "inherit" }}
+              style={{ width: "10rem", border: "none", outline: "none", background: "transparent", font: "inherit" }}
             />
           </label>
         </div>

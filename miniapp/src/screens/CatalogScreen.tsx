@@ -153,7 +153,7 @@ export default function CatalogScreen({
             onChange={(e) => setQ(e.target.value)}
             placeholder="поиск по названию"
             aria-label="Поиск по названию или площадке"
-            style={{ border: "none", outline: "none", width: 150, background: "transparent", font: "inherit" }}
+            style={{ border: "none", outline: "none", width: "10rem", background: "transparent", font: "inherit" }}
           />
         </label>
         <div className="kv-filters" style={{ marginTop: 10 }}>
