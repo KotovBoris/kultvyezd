@@ -1,6 +1,6 @@
 // avoid-ai-design-ignore-file: L4 — в этом экране нет «ленты метрик»: под L4 попал
 // фильтр возрастного ценза (0+/6+/12+/16+), это реальный фильтр каталога.
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, type CultureEvent, type EventSort, type SchoolClass, type SortOrder } from "../api";
 import { ageBlockReason, splitByAge, upcomingRange, weekendRange } from "../age";
 import { IconCalendar, IconPin, IconSearch } from "../icons";
@@ -286,33 +286,90 @@ export default function CatalogScreen({
                 </tr>
               </thead>
               <tbody>
-                {shown.map((ev) => (
-                  <tr key={ev.id} className={selected?.id === ev.id ? "is-active" : undefined}>
-                    <td>
-                      {/* Выбор события — клик прямо по строке, без отдельного списка-селекта */}
-                      <button
-                        type="button"
-                        className="kv-eventbtn"
-                        aria-current={selected?.id === ev.id ? "true" : undefined}
-                        onClick={() => setSelected(ev)}
-                      >
-                        <b>{ev.title}</b>
-                        <span className="kv-muted">
-                          <IconPin size={12} /> {ev.venue}
-                        </span>
-                        <span className="kv-wrap" style={{ marginTop: 4 }}>
-                          {ev.pushkin_eligible && <span className="kv-chip pushkin">Пушкинская карта</span>}
-                          {ev.is_free && <span className="kv-chip free">Бесплатно</span>}
-                        </span>
-                      </button>
-                    </td>
-                    <td className="kv-data">
-                      <IconCalendar size={12} /> {ev.event_date ?? "—"}
-                    </td>
-                    <td className="kv-muted">{ev.age_rating}</td>
-                    <td className="kv-data">{ev.is_free ? "0 ₽" : `${ev.price.toFixed(0)} ₽`}</td>
-                  </tr>
-                ))}
+                {shown.map((ev) => {
+                  const isOpen = selected?.id === ev.id;
+                  return (
+                    <Fragment key={ev.id}>
+                      <tr className={isOpen ? "is-active" : undefined}>
+                        <td>
+                          {/* Клик по строке выбирает событие; повторный клик сворачивает форму */}
+                          <button
+                            type="button"
+                            className="kv-eventbtn"
+                            aria-expanded={isOpen}
+                            onClick={() => setSelected(isOpen ? null : ev)}
+                          >
+                            <b>{ev.title}</b>
+                            <span className="kv-muted">
+                              <IconPin size={12} /> {ev.venue}
+                            </span>
+                            <span className="kv-wrap" style={{ marginTop: 4 }}>
+                              {ev.pushkin_eligible && <span className="kv-chip pushkin">Пушкинская карта</span>}
+                              {ev.is_free && <span className="kv-chip free">Бесплатно</span>}
+                            </span>
+                          </button>
+                        </td>
+                        <td className="kv-data">
+                          <IconCalendar size={12} /> {ev.event_date ?? "—"}
+                        </td>
+                        <td className="kv-muted">{ev.age_rating}</td>
+                        <td className="kv-data">{ev.is_free ? "0 ₽" : `${ev.price.toFixed(0)} ₽`}</td>
+                      </tr>
+
+                      {/* Форма оформления раскрывается тут же, под выбранным событием */}
+                      {isOpen && (
+                        <tr className="kv-order-row">
+                          <td colSpan={4}>
+                            <div className="kv-inline-order">
+                              <div className="kv-row" style={{ marginBottom: 8 }}>
+                                <b>Оформление выезда</b>
+                                <button className="kv-btn ghost" onClick={() => setSelected(null)}>
+                                  Отмена
+                                </button>
+                              </div>
+                              <div className="kv-filters">
+                                <select
+                                  value={classId ?? ""}
+                                  onChange={(e) => setClassId(Number(e.target.value))}
+                                  aria-label="Класс"
+                                >
+                                  {classes.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.title} · {c.students.length} уч.
+                                    </option>
+                                  ))}
+                                </select>
+                                <label className="kv-chip">
+                                  сбор
+                                  <input
+                                    type="time"
+                                    value={gathering}
+                                    onChange={(e) => setGathering(e.target.value)}
+                                    aria-label="Время сбора"
+                                  />
+                                </label>
+                                <label className="kv-chip">
+                                  возвращение
+                                  <input
+                                    type="time"
+                                    value={returnTime}
+                                    onChange={(e) => setReturnTime(e.target.value)}
+                                    aria-label="Время возвращения"
+                                  />
+                                </label>
+                              </div>
+                              <div className="kv-actions">
+                                <button className="kv-btn primary" disabled={busy || !classId} onClick={create}>
+                                  {busy ? "Создаём…" : "Создать выезд"}
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
             {empty && <div className="kv-empty" style={{ marginTop: 10 }}>Под фильтры ничего не подошло.</div>}
@@ -343,47 +400,6 @@ export default function CatalogScreen({
         </div>
       )}
 
-      {selected && (
-        <div className="kv-card is-active">
-          <p className="kv-section">Оформление выезда</p>
-          <h3>{selected.title}</h3>
-          <div className="kv-filters">
-            <select value={classId ?? ""} onChange={(e) => setClassId(Number(e.target.value))} aria-label="Класс">
-              {classes.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.title} · {c.students.length} уч.
-                </option>
-              ))}
-            </select>
-            <label className="kv-chip">
-              сбор
-              <input
-                type="time"
-                value={gathering}
-                onChange={(e) => setGathering(e.target.value)}
-                aria-label="Время сбора"
-              />
-            </label>
-            <label className="kv-chip">
-              возвращение
-              <input
-                type="time"
-                value={returnTime}
-                onChange={(e) => setReturnTime(e.target.value)}
-                aria-label="Время возвращения"
-              />
-            </label>
-          </div>
-          <div className="kv-actions">
-            <button className="kv-btn primary" disabled={busy || !classId} onClick={create}>
-              {busy ? "Создаём…" : "Создать выезд"}
-            </button>
-            <button className="kv-btn ghost" onClick={() => setSelected(null)}>
-              Отмена
-            </button>
-          </div>
-        </div>
-      )}
     </>
   );
 }

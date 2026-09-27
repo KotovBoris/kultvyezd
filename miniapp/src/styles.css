@@ -594,6 +594,14 @@ table.kv-table tbody tr:hover td {
 table.kv-table tbody tr.is-active td {
   background: #fbf9f4;
 }
+/* Раскрытая форма оформления прямо под строкой события */
+.kv-order-row > td {
+  background: var(--raised);
+  border-radius: var(--r-sm);
+}
+.kv-inline-order {
+  padding: var(--s1) 0 var(--s2);
+}
 /* Клик по событию в каталоге: вся строка — доступная кнопка */
 .kv-eventbtn {
   display: flex;
