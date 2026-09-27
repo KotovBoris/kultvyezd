@@ -127,12 +127,24 @@ export function fileUrl(url: string): string {
   return url;
 }
 
-/** Запрос номера телефона у пользователя (для привязки родителя к ученику). */
-export async function requestContact(): Promise<{ phone: string; authDate: string; hash: string } | null> {
+/**
+ * Запрос номера телефона у пользователя (для привязки родителя к ученику).
+ *
+ * ВАЖНО: нативный диалог MAX может не ответить вовсе (в браузере, при отказе,
+ * при сбое моста) — тогда промис никогда не завершается. Раньше это подвешивало
+ * отправку согласия в состоянии «Отправляем…» навсегда. Телефон здесь
+ * необязателен, поэтому ограничиваем ожидание и возвращаем null.
+ */
+export async function requestContact(
+  timeoutMs = 5000,
+): Promise<{ phone: string; authDate: string; hash: string } | null> {
   const w = bridge();
   if (!w?.requestContact) return null;
   try {
-    return await w.requestContact();
+    return await Promise.race([
+      w.requestContact(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
   } catch {
     return null;
   }

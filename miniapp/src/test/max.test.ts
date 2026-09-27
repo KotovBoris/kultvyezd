@@ -12,6 +12,7 @@ import {
   maxVersion,
   openLink,
   platform,
+  requestContact,
   startParam,
 } from "../max";
 
@@ -112,5 +113,19 @@ describe("MAX Bridge", () => {
     expect(currentChatId()).toBeNull();
     setWebApp({ initData: "x", initDataUnsafe: { user: { id: 1 } } });
     expect(currentChatId()).toBeNull();
+  });
+
+  it("BRG-12: requestContact не виснет — при отсутствии ответа возвращает null по таймауту", async () => {
+    // Нативный диалог в реальном MAX может не ответить вовсе: промис не завершается.
+    setWebApp({ initData: "x", requestContact: () => new Promise(() => {}) });
+    await expect(requestContact(20)).resolves.toBeNull();
+  });
+
+  it("BRG-12: requestContact возвращает данные, если MAX ответил быстро", async () => {
+    setWebApp({
+      initData: "x",
+      requestContact: async () => ({ phone: "+79001234567", authDate: "1", hash: "h" }),
+    });
+    await expect(requestContact(1000)).resolves.toMatchObject({ phone: "+79001234567" });
   });
 });
