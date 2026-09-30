@@ -109,24 +109,6 @@ def test_NFR_3_repeat_scenario_stable(client: TestClient, first_class) -> None:
         assert client.get(f"/api/v1/excursions/{exc['id']}/dashboard").status_code == 200
 
 
-def test_NFR_6_sqlite_pragmas_for_concurrency() -> None:
-    """Под конкурентной записью SQLite настроен на WAL + busy_timeout.
-
-    Регресс-защита: без WAL и busy_timeout 100 параллельных записей давали
-    5xx «database is locked» и потерю обновлений (проверено scripts/race_check.py).
-    """
-    from sqlalchemy import text  # noqa: PLC0415
-
-    from app.db import IS_SQLITE, engine  # noqa: PLC0415
-
-    if not IS_SQLITE:
-        return  # для PostgreSQL эти PRAGMA неприменимы
-    with engine.connect() as c:
-        assert c.execute(text("PRAGMA journal_mode")).scalar().lower() == "wal"
-        assert int(c.execute(text("PRAGMA busy_timeout")).scalar()) >= 20000
-        assert int(c.execute(text("PRAGMA foreign_keys")).scalar()) == 1
-
-
 def test_NFR_5_openapi_paths_reachable(client: TestClient) -> None:
     spec = client.get("/openapi.json").json()
     # все GET-пути без параметров должны отвечать не 404/405

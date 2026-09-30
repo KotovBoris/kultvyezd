@@ -5,7 +5,7 @@
 ## Подготовка (за 2 минуты до защиты)
 
 ```bash
-cd kultvyezd
+cd classgo
 cp .env.example .env        # при необходимости впишите MAX_BOT_TOKEN
 docker compose up -d --build
 # проверка живости
@@ -45,5 +45,4 @@ curl -s -X POST http://localhost:8080/api/v1/admin/reset-demo
 ## Резервный план (если интернет/Docker недоступны)
 
 1. Открыть скриншоты [`docs/screenshots/`](screenshots/) — все экраны.
-2. Открыть презентацию [`artifacts/kultvyezd-presentation.pdf`](../artifacts/kultvyezd-presentation.pdf).
 3. Показать репозиторий и зелёный CI: https://github.com/KotovBoris/kultvyezd/actions
