@@ -101,7 +101,7 @@ def test_LNK_3_bot_bind_by_code(client: TestClient, first_class) -> None:
     code = client.post(f"/api/v1/students/{sid}/link-code").json()["code"]
     svc = BotService(client=_FakeClient())
 
-    assert svc._bind_by_code(code, 555001) is True
+    assert svc._bind_by_code(code, 555001) == sid
     from app.db import engine  # noqa: PLC0415
     from app.models import ParentContact  # noqa: PLC0415
     from sqlmodel import Session, select  # noqa: PLC0415
@@ -115,13 +115,13 @@ def test_LNK_4_code_single_use(client: TestClient, first_class) -> None:
     sid = first_class["students"][1]["id"]
     code = client.post(f"/api/v1/students/{sid}/link-code").json()["code"]
     svc = BotService(client=_FakeClient())
-    assert svc._bind_by_code(code, 1) is True
-    assert svc._bind_by_code(code, 2) is False  # повторно не привязывает
+    assert svc._bind_by_code(code, 1) == sid
+    assert svc._bind_by_code(code, 2) is None
 
 
 def test_LNK_5_unknown_code(client: TestClient) -> None:
     svc = BotService(client=_FakeClient())
-    assert svc._bind_by_code("nonexistent-code", 3) is False
+    assert svc._bind_by_code("nonexistent-code", 3) is None
 
 
 # --------------------------------------------------------------- PUB

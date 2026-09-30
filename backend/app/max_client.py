@@ -1,13 +1,3 @@
-"""Тонкий клиент MAX Bot API (httpx). Полностью соответствует официальному контракту.
-
-Домен: platform-api2.max.ru (актуальный по dev.max.ru).
-Авторизация: заголовок Authorization: <access_token> (query-параметр устарел).
-Используются только методы: GET /me, GET /updates, POST /messages, POST /answers.
-
-Клиент не бросает исключения наружу в режиме бота: любая ошибка транспорта
-логируется, чтобы падение внешнего шлюза не валило весь сервис
-(критерий «Стабильность работы и обработка ошибок»).
-"""
 from __future__ import annotations
 
 import logging
@@ -26,7 +16,6 @@ class MaxClient:
         self.token = token or s.MAX_BOT_TOKEN
         self.base = (base or s.MAX_API_BASE).rstrip("/")
         self.timeout = timeout
-        # MAX использует сертификаты Минцифры. verify: True | False | путь к PEM.
         if s.MAX_TLS_INSECURE:
             self.verify: bool | str = False
         elif s.MAX_CA_BUNDLE:
@@ -41,7 +30,6 @@ class MaxClient:
     def _headers(self) -> dict[str, str]:
         return {"Authorization": self.token, "Content-Type": "application/json"}
 
-    # ------------------------------------------------------------- чтение
     async def get_me(self) -> dict[str, Any] | None:
         return await self._request("GET", "/me")
 
@@ -54,7 +42,6 @@ class MaxClient:
             params["types"] = ",".join(types)
         return await self._request("GET", "/updates", params=params) or {"updates": [], "marker": marker}
 
-    # ------------------------------------------------------------- запись
     async def send_message(self, *, user_id: int | None = None, chat_id: int | None = None,
                            text: str = "", attachments: list[dict] | None = None,
                            fmt: str | None = None, notify: bool = True) -> dict[str, Any] | None:
@@ -120,10 +107,6 @@ class MaxClient:
         )
 
     async def set_commands(self, commands: list[dict[str, str]]) -> dict[str, Any] | None:
-        """PATCH /me/commands — регистрирует команды бота (MAX Bot API, раздел bots).
-
-        После регистрации MAX показывает пользователю подсказку по командам.
-        """
         return await self._request("PATCH", "/me/commands", json={"commands": commands})
 
     async def answer_callback(self, callback_id: str, *, text: str | None = None,
@@ -141,7 +124,6 @@ class MaxClient:
             body["notification"] = notification
         return await self._request("POST", "/answers", params={"callback_id": callback_id}, json=body)
 
-    # ------------------------------------------------------------- внутреннее
     async def _request(self, method: str, path: str, *, params: dict | None = None,
                        json: dict | None = None) -> dict[str, Any] | None:
         if not self.enabled:
@@ -157,22 +139,21 @@ class MaxClient:
                 if not resp.content:
                     return {}
                 return resp.json()
-        except Exception as exc:  # noqa: BLE001 — не роняем сервис из-за внешнего API
+        except Exception as exc:  # noqa: BLE001
             log.error("MAX %s %s ошибка транспорта: %s", method, path, exc)
             return None
 
 
-# ------------------------------------------------------------------ helpers
-# Команды бота, регистрируемые в MAX через PATCH /me/commands (подсказки в мессенджере)
 BOT_COMMANDS: list[dict[str, str]] = [
     {"name": "start", "description": "Начать работу с ботом «ClassGo»"},
     {"name": "trips", "description": "Мои выезды и статусы по ребёнку"},
+    {"name": "mute", "description": "Не беспокоить по всем мероприятиям"},
+    {"name": "unmute", "description": "Снова получать напоминания"},
     {"name": "help", "description": "Как открыть мини-приложение"},
 ]
 
 
 def inline_keyboard(buttons: list[list[dict]]) -> dict:
-    """Формирует AttachmentRequest типа inline_keyboard (по схеме MAX)."""
     return {"type": "inline_keyboard", "payload": {"buttons": buttons}}
 
 
@@ -185,5 +166,4 @@ def link_button(text: str, url: str) -> dict:
 
 
 def open_app_button(text: str, web_app: str, payload: str = "") -> dict:
-    """Кнопка открытия мини-приложения: тип open_app, web_app = уникальное имя бота."""
     return {"type": "open_app", "text": text, "web_app": web_app, "payload": payload or None}

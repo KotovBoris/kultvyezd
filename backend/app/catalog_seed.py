@@ -1,9 +1,3 @@
-"""Модельные демонстрационные данные (п.10 ограничений: данные помечены как модельные).
-
-Источник-прообраз — каталог PRO.Культура.РФ / «Пушкинская карта» (раздел 21 презентации).
-Реальный API недоступен на хакатоне, поэтому используется подготовленный снапшот;
-в поле source у каждого события это явно указано.
-"""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -16,6 +10,7 @@ from .models import (
     ExcursionParticipant,
     ExcursionStatus,
     ParentContact,
+    School,
     SchoolClass,
     Student,
     TicketStatus,
@@ -23,7 +18,6 @@ from .models import (
 
 SOURCE = "PRO.Культура.РФ / «Пушкинская карта» — модельные данные (снапшот каталога, г. Казань)"
 
-# Смещения дат от «сегодня», чтобы демо всегда выглядело актуальным
 _EVENTS: list[dict] = [
     dict(title="Экскурсия «Казанский Кремль: сквозь века»", venue="Музей-заповедник «Казанский Кремль»",
          age_rating="6+", days=7, duration_min=90, price=0.0, pushkin=False, free=True,
@@ -91,9 +85,7 @@ _EVENTS: list[dict] = [
          description="Профориентационная экскурсия."),
 ]
 
-# Демонстрационный класс: 8-Б, 24 ученика
 _DEMO_STUDENTS: list[tuple[str, str, str, str]] = [
-    # ФИО, дата рождения, телефон родителя, роль
     ("Абдуллина Алия Ильдаровна", "2010-03-12", "+79001234501", "Мама"),
     ("Бикмуллин Тимур Ринатович", "2010-05-04", "+79001234502", "Папа"),
     ("Валеева Дина Артуровна", "2010-01-22", "+79001234503", "Мама"),
@@ -116,13 +108,12 @@ _DEMO_STUDENTS: list[tuple[str, str, str, str]] = [
     ("Фёдорова Алиса Павловна", "2010-06-14", "+79001234520", "Мама"),
     ("Хайруллина Ясмина Рушановна", "2010-08-25", "+79001234521", "Мама"),
     ("Царёва Дарья Валерьевна", "2010-10-07", "+79001234522", "Мама"),
-    ("Шакиров Ильмир Маратович", "2010-12-19", "++79001234523", "Папа"),
+    ("Шакиров Ильмир Маратович", "2010-12-19", "+79001234523", "Папа"),
     ("Юсупова Амина Ринатовна", "2010-03-30", "+79001234524", "Мама"),
 ]
 
 
 def seed_catalog(session: Session) -> int:
-    """Наполняет каталог, если он пуст. Возвращает число событий."""
     existing = session.exec(select(CultureEvent)).first()
     if existing:
         return 0
@@ -152,33 +143,59 @@ def seed_catalog(session: Session) -> int:
     return created
 
 
+def seed_demo_school(session: Session) -> int:
+    existing = session.exec(select(School)).first()
+    if existing:
+        return existing.id
+    school = School(name="МБОУ «Гимназия №7» г. Казань", city="Казань", number="7")
+    session.add(school)
+    session.commit()
+    session.refresh(school)
+    return school.id
+
+
 def seed_demo_class(session: Session) -> int:
-    """Создаёт демо-класс 8-Б с 24 учениками и родителями. Возвращает id класса."""
     existing = session.exec(select(SchoolClass)).first()
     if existing:
         return existing.id
+    school_id = seed_demo_school(session)
     klass = SchoolClass(
         grade="8",
         letter="Б",
+        school_id=school_id,
         school_number="7",
         school_name="МБОУ «Гимназия №7» г. Казань",
-        teacher_name="Классный руководитель: Салимова Гульнара Рифкатовна",
+        teacher_name="Салимова Гульнара Рифкатовна",
         teacher_phone="+79001230000",
     )
     session.add(klass)
     session.commit()
     session.refresh(klass)
+    first_student_id = None
     for full_name, birth, phone, role in _DEMO_STUDENTS:
         student = Student(class_id=klass.id, full_name=full_name, birth_date=date.fromisoformat(birth))
         session.add(student)
         session.commit()
         session.refresh(student)
+        if first_student_id is None:
+            first_student_id = student.id
         session.add(
             ParentContact(
                 student_id=student.id,
                 full_name=f"Родитель: {full_name.split()[0]}",
-                phone_number=phone.replace("++", "+"),
+                phone_number=phone,
                 role=role,
+                confirmed=True,
+            )
+        )
+    if first_student_id is not None:
+        session.add(
+            ParentContact(
+                student_id=first_student_id,
+                full_name="Родитель: Абдуллина (второй)",
+                phone_number="+79001234525",
+                role="Папа",
+                confirmed=True,
             )
         )
     session.commit()
@@ -186,14 +203,17 @@ def seed_demo_class(session: Session) -> int:
 
 
 def seed_demo_excursion(session: Session) -> int:
-    """Создаёт демонстрационный выезд «в разгаре сбора» со смешанными статусами."""
     existing = session.exec(select(Excursion)).first()
     if existing:
         return existing.id
     klass = session.exec(select(SchoolClass)).first()
     if not klass:
         return 0
-    event = session.exec(select(CultureEvent).where(CultureEvent.pushkin_eligible == True)).first()  # noqa: E712
+    event = session.exec(
+        select(CultureEvent).where(CultureEvent.pushkin_eligible == True, CultureEvent.price > 0)  # noqa: E712
+    ).first()
+    if not event:
+        event = session.exec(select(CultureEvent).where(CultureEvent.pushkin_eligible == True)).first()  # noqa: E712
     if not event:
         event = session.exec(select(CultureEvent)).first()
 

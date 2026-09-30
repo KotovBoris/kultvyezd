@@ -100,7 +100,7 @@ async def test_BOT_3_help_command() -> None:
 async def test_BOT_4_trips_without_binding() -> None:
     fake = FakeClient()
     await BotService(client=fake).handle_update(_message("/trips"))
-    assert fake.sent and "привяжитесь" in fake.sent[-1]["text"].lower()
+    assert fake.sent and "не привязаны" in fake.sent[-1]["text"].lower()
 
 
 @pytest.mark.asyncio
@@ -110,11 +110,13 @@ async def test_BOT_5_trips_with_binding() -> None:
         student = s.exec(select(Student).where(Student.class_id == klass.id)).first()
         parent = s.exec(select(ParentContact).where(ParentContact.student_id == student.id)).first()
         parent.max_user_id = 900900
+        parent.confirmed = True
         s.add(parent)
         s.commit()
+        student_name = student.full_name
     fake = FakeClient()
     await BotService(client=fake).handle_update(_message("/trips", user_id=900900))
-    assert fake.sent and "open_app" in _button_types(fake.sent[-1]["attachments"])
+    assert fake.sent and any(student_name in m["text"] for m in fake.sent)
 
 
 # ------------------------------------------------------- callbacks
@@ -210,11 +212,10 @@ def test_BOT_18_webhook_bad_json(client) -> None:  # noqa: ANN001
 
 
 def test_BOT_20_bot_commands_valid() -> None:
-    """Команды бота корректны по схеме MAX (PATCH /me/commands)."""
     from app.max_client import BOT_COMMANDS  # noqa: PLC0415
 
     names = [c["name"] for c in BOT_COMMANDS]
-    assert names == ["start", "trips", "help"]
+    assert names == ["start", "trips", "mute", "unmute", "help"]
     assert len(set(names)) == len(names)
     for c in BOT_COMMANDS:
         assert 1 <= len(c["name"]) <= 64

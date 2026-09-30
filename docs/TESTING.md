@@ -25,7 +25,7 @@
 | Уровень | Инструмент | Файлы | Что проверяет |
 |---|---|---|---|
 | Backend API | pytest | `backend/tests/test_req_*.py` | все REST-ручки: позитив, негатив (404/422), краевые |
-| Бизнес-правила | pytest | `test_req_consent_tickets.py`, `test_req_excursions_dashboard.py` | идемпотентность ПЭП, правило «двух родителей», «Светофор» |
+| Правила выезда | pytest | `test_req_consent_tickets.py`, `test_req_excursions_dashboard.py` | повторный ответ не затирает первый, статусы класса |
 | Чат-бот MAX | pytest | `test_req_bot.py`, `test_bot_protocol.py` | все типы Update, callback-ветки, напоминания, привязка |
 | Безопасность/конфиг | pytest | `test_req_security_nfr.py` | нет секретов в репо, зависимости зафиксированы, ошибки без стека |
 | Критичные случаи | pytest | `test_crit_adversarial.py` | чужой ученик, нулевой id, 1000-строчный импорт, инъекции, параллелизм |

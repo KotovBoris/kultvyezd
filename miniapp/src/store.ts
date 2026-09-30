@@ -1,17 +1,12 @@
-/** Простейшее хранилище сессии (без внешних зависимостей). */
 import { useEffect, useState } from "react";
 
 export interface Session {
-  /** id ученика, если mini-app открыт по контексту родителя (?startapp=<student_id>) */
+  role: "parent" | "teacher";
+  userId: number | null;
   studentId: number | null;
-  role: "teacher" | "parent";
-  /** id ребёнка, найденного по MAX-профилю родителя (телефон/привязка) */
-  resolvedStudentId?: number | null;
-  /** имя ребёнка для отображения (родительский режим) */
-  resolvedStudentName?: string | null;
 }
 
-let session: Session = { studentId: null, role: "teacher", resolvedStudentId: null, resolvedStudentName: null };
+let session: Session = { role: "parent", userId: null, studentId: null };
 const listeners = new Set<() => void>();
 
 export function getSession(): Session {

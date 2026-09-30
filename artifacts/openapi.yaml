@@ -895,10 +895,6 @@ components:
         responsible_teacher:
           type: string
           title: Responsible Teacher
-        tree:
-          type: string
-          title: Tree
-          default: 📋
       type: object
       required:
       - id

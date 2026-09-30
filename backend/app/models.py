@@ -1,13 +1,3 @@
-"""Доменная модель «ClassGo» (по разделу 3 Архитектуры).
-
-Ключевые сущности: класс → ученики → контакты родителей, и выезд → участники.
-Статус согласия и билета хранится на участнике выезда (ExcursionParticipant),
-а согласие привязано к профилю ученика — это снимает коллизию «два родителя».
-
-Примечание: аннотации намеренно записаны через typing.Optional/List (без PEP 604 `|`
-и без `from __future__ import annotations`) — так строковые аннотации связей
-корректно резолвятся SQLModel/SQLAlchemy на всех поддерживаемых версиях Python.
-"""
 from datetime import date, datetime, time
 from enum import Enum
 from typing import List, Optional
@@ -15,7 +5,6 @@ from typing import List, Optional
 from sqlmodel import Field, Relationship, SQLModel
 
 
-# ---------------------------------------------------------------- перечисления
 class ConsentStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
@@ -41,15 +30,43 @@ class TrafficLight(str, Enum):
     RED = "RED"
 
 
-# ---------------------------------------------------------------------- классы
+class AccessRole(str, Enum):
+    OWNER = "OWNER"
+    EDIT = "EDIT"
+    READ = "READ"
+
+
+class School(SQLModel, table=True):
+    __tablename__ = "schools"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True)
+    city: str = ""
+    number: str = ""
+    owner_user_id: Optional[int] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class SchoolAccess(SQLModel, table=True):
+    __tablename__ = "school_access"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    school_id: int = Field(foreign_key="schools.id", index=True)
+    user_id: int = Field(index=True)
+    role: AccessRole = Field(default=AccessRole.READ)
+
+
 class SchoolClass(SQLModel, table=True):
     __tablename__ = "school_classes"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     grade: str = Field(index=True)
     letter: str = ""
+    school_id: Optional[int] = Field(default=None, foreign_key="schools.id", index=True)
     school_number: str = ""
     school_name: str = ""
+    chat_id: Optional[int] = Field(default=None)
+    owner_user_id: Optional[int] = Field(default=None, index=True)
     teacher_max_id: Optional[int] = None
     teacher_name: str = ""
     teacher_phone: str = ""
@@ -60,6 +77,15 @@ class SchoolClass(SQLModel, table=True):
     @property
     def title(self) -> str:
         return f"{self.grade}{self.letter}"
+
+
+class ClassAccess(SQLModel, table=True):
+    __tablename__ = "class_access"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    class_id: int = Field(foreign_key="school_classes.id", index=True)
+    user_id: int = Field(index=True)
+    role: AccessRole = Field(default=AccessRole.READ)
 
 
 class Student(SQLModel, table=True):
@@ -77,18 +103,15 @@ class ParentContact(SQLModel, table=True):
     student_id: int = Field(foreign_key="student.id", index=True)
     full_name: str = ""
     phone_number: str = Field(index=True)
-    # MAX user_id появляется, когда родитель впервые запустил бота (bot_started)
     max_user_id: Optional[int] = Field(default=None, index=True)
-    # Роль для отображения («Мама», «Папа», «Законный представитель»)
     role: str = "Законный представитель"
+    confirmed: bool = False
+    notifications_enabled: bool = True
 
     student: Optional[Student] = Relationship(back_populates="parents")
 
 
-# ------------------------------------------------------------------ каталог
 class CultureEvent(SQLModel, table=True):
-    """Событие из каталога PRO.Культура.РФ (модельные данные — п.10 ограничений)."""
-
     id: Optional[int] = Field(default=None, primary_key=True)
     external_id: str = Field(index=True)
     title: str
@@ -103,7 +126,6 @@ class CultureEvent(SQLModel, table=True):
     ticket_url: str = ""
     address: str = ""
     description: str = ""
-    # источник данных, чтобы честно показать происхождение (п.3 работы с данными)
     source: str = "PRO.Культура.РФ (модельные данные, снапшот каталога)"
 
 
@@ -147,53 +169,46 @@ class ExcursionParticipant(SQLModel, table=True):
     signed_at: Optional[datetime] = None
     rejection_reason: Optional[str] = None
     ticket_number: Optional[str] = None
-    # Согласие законного представителя на обработку ПДн ребёнка (152-ФЗ):
-    # юридическая чистота пакета документов + отдельный след в аудите.
-    pdn_consent_at: Optional[datetime] = None
-    pdn_consent_by: Optional[str] = None
 
     excursion: Optional[Excursion] = Relationship(back_populates="participants")
     student: Optional[Student] = Relationship()
 
 
 class ConsentAudit(SQLModel, table=True):
-    """Журнал фиксации ПЭП — юридически значимый след (таймстемп, кто, что, откуда)."""
-
     id: Optional[int] = Field(default=None, primary_key=True)
     excursion_id: int = Field(index=True)
     student_id: int = Field(index=True)
     parent_phone: str = ""
     parent_name: str = ""
-    action: str = ""  # APPROVE | REJECT | TICKET_CONFIRM | REMIND
+    action: str = ""
     reason: Optional[str] = None
-    source: str = "bot"  # bot | miniapp | api
+    source: str = "bot"
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class DocumentArtifact(SQLModel, table=True):
-    """Сгенерированный документ (приказ). Храним, чтобы отдавать повторно и версионировать."""
-
     id: Optional[int] = Field(default=None, primary_key=True)
     excursion_id: int = Field(index=True)
-    kind: str = "order"  # order | order_pdf
+    kind: str = "order"
     version: int = 1
     filename: str = ""
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class BotLinkCode(SQLModel, table=True):
-    """Одноразовый код привязки родителя к ученику из mini-app (диплинк в бота).
-
-    ``parent_phone``/``role`` указывают, какой именно контакт (из нескольких
-    у ученика) должен быть привязан — это и есть поддержка сценария
-    «два родителя»: мама и папа получают отдельные коды и привязываются к
-    своим контактам, а не к «первому попавшемуся».
-    """
-
     id: Optional[int] = Field(default=None, primary_key=True)
     code: str = Field(index=True)
     student_id: int
     parent_phone: str = ""
-    role: str = ""
     used: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ReminderLog(SQLModel, table=True):
+    __tablename__ = "reminder_log"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    excursion_id: int = Field(index=True)
+    student_id: int = Field(index=True)
+    kind: str = Field(index=True)
+    sent_at: datetime = Field(default_factory=datetime.utcnow)

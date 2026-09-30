@@ -1,4 +1,4 @@
-# ClassGo — зависимости backend (фиксированные версии, п.4 формата сдачи)
+# Зависимости backend. Версии зафиксированы.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 sqlmodel==0.0.22
@@ -7,8 +7,6 @@ sqlalchemy==2.0.35
 pydantic-settings==2.7.1
 python-multipart==0.0.20
 httpx==0.28.1
-# Драйвер PostgreSQL (нужен только при DATABASE_URL=postgresql+psycopg2://...)
-psycopg2-binary==2.9.10
 python-docx==1.1.2
 reportlab==4.2.5
 openpyxl==3.1.5

@@ -1,4 +1,3 @@
-"""Pydantic-схемы REST API (контракт описан в openapi.json и DATA-API.yaml)."""
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -6,10 +5,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .models import ConsentStatus, ExcursionStatus, TicketStatus, TrafficLight
+from .models import AccessRole, ConsentStatus, ExcursionStatus, TicketStatus, TrafficLight
 
 
-# ------------------------------------------------------------------ каталог
 class CultureEventOut(BaseModel):
     id: int
     title: str
@@ -25,26 +23,92 @@ class CultureEventOut(BaseModel):
     address: str
     description: str
     source: str
-    # Явное поле вместо разбора «12+» на клиенте: нужно авто-фильтру
-    # «подходит моему классу по возрасту». Аддитивно, старые тесты не ломает.
-    age_min: int = 0
 
 
-# ------------------------------------------------------------------ классы
+class SchoolOut(BaseModel):
+    id: int
+    name: str
+    city: str
+    number: str
+    owner_user_id: int | None = None
+    classes_count: int = 0
+
+
+class SchoolCreate(BaseModel):
+    name: str
+    city: str = ""
+    number: str = ""
+    user_id: int | None = None
+
+
+class ShareRequest(BaseModel):
+    user_id: int
+    role: Literal["EDIT", "READ"] = "READ"
+
+
+class ShareOut(BaseModel):
+    user_id: int
+    role: AccessRole
+
+
+class ParentOut(BaseModel):
+    id: int
+    full_name: str
+    phone_number: str
+    role: str
+    confirmed: bool
+    bot_activated: bool
+    notifications_enabled: bool
+
+
 class StudentOut(BaseModel):
     id: int
     full_name: str
     birth_date: date | None
     parent_phones: list[str] = Field(default_factory=list)
+    parents: list[ParentOut] = Field(default_factory=list)
+
+
+class StudentCreate(BaseModel):
+    full_name: str
+    birth_date: date | None = None
+    parent_phone: str = ""
+    parent_name: str = ""
+    parent_role: str = "Законный представитель"
 
 
 class ClassOut(BaseModel):
     id: int
     title: str
+    school_id: int | None = None
     school_number: str
     school_name: str
     teacher_name: str
+    chat_id: int | None = None
+    owner_user_id: int | None = None
+    can_edit: bool = True
     students: list[StudentOut] = Field(default_factory=list)
+
+
+class ClassCreate(BaseModel):
+    grade: str
+    letter: str = ""
+    school_id: int | None = None
+    school_name: str = ""
+    school_number: str = ""
+    teacher_name: str = ""
+    chat_id: int | None = None
+    user_id: int | None = None
+    students: list[StudentCreate] = Field(default_factory=list)
+
+
+class ClassUpdate(BaseModel):
+    grade: str | None = None
+    letter: str | None = None
+    school_id: int | None = None
+    teacher_name: str | None = None
+    chat_id: int | None = None
+    user_id: int | None = None
 
 
 class ImportResult(BaseModel):
@@ -55,7 +119,6 @@ class ImportResult(BaseModel):
     skipped_rows: list[str] = Field(default_factory=list)
 
 
-# ------------------------------------------------------------------ выезды
 class ExcursionCreate(BaseModel):
     class_id: int
     culture_event_id: int | None = None
@@ -63,8 +126,8 @@ class ExcursionCreate(BaseModel):
     location_name: str | None = None
     address: str | None = None
     event_date: date | None = None
-    gathering_time: str | None = None  # "08:30"
-    return_time: str | None = None  # "14:00"
+    gathering_time: str | None = None
+    return_time: str | None = None
     deadline: datetime | None = None
     ticket_price: float | None = None
     ticket_sale_url: str | None = None
@@ -78,14 +141,13 @@ class ParticipantRow(BaseModel):
     traffic_light: TrafficLight
     consent_status: ConsentStatus
     ticket_status: TicketStatus
+    bot_activated: bool = False
+    parent_status: Literal["APPROVED", "REJECTED", "NO_ANSWER", "BOT_INACTIVE"] = "NO_ANSWER"
     signed_by_name: str | None = None
     signed_by_phone: str | None = None
     signed_at: datetime | None = None
     rejection_reason: str | None = None
     ticket_number: str | None = None
-    # Согласие законного представителя на обработку ПДн (152-ФЗ)
-    pdn_consent_at: datetime | None = None
-    pdn_consent_by: str | None = None
 
 
 class ExcursionOut(BaseModel):
@@ -104,7 +166,6 @@ class ExcursionOut(BaseModel):
     status: ExcursionStatus
     school_name: str
     responsible_teacher: str
-    tree: str = "📋"
 
 
 class DashboardOut(BaseModel):
@@ -114,7 +175,6 @@ class DashboardOut(BaseModel):
     participants: list[ParticipantRow]
 
 
-# ------------------------------------------------------------------ согласия
 class ConsentRequest(BaseModel):
     student_id: int
     status: Literal["APPROVED", "REJECTED"]
@@ -122,11 +182,7 @@ class ConsentRequest(BaseModel):
     parent_name: str = ""
     reason: str | None = None
     source: str = "miniapp"
-    # Согласие на обработку персональных данных (152-ФЗ) — обязательный чекбокс
-    # у родителя перед отправкой согласия на выезд.
-    pdn_consent: bool = False
-    # Стартовые параметры MAX Bridge (window.WebApp.initData). Проверяются только
-    # если включена настройка MAX_VALIDATE_INIT_DATA (в проде).
+    max_user_id: int | None = None
     init_data: str | None = None
 
 
@@ -144,6 +200,7 @@ class TicketConfirmRequest(BaseModel):
     student_id: int
     ticket_number: str | None = None
     source: str = "miniapp"
+    init_data: str | None = None
 
 
 class RemindResponse(BaseModel):
@@ -152,18 +209,27 @@ class RemindResponse(BaseModel):
     recipients: list[str] = Field(default_factory=list)
 
 
+class LinkCodeOut(BaseModel):
+    code: str
+    deep_link: str
+    student_id: int
+    expires_in_min: int = 60
+
+
 class DocumentOut(BaseModel):
     excursion_id: int
     docx_url: str
     pdf_url: str
     version: int
     generated_at: datetime
-    # Состав включённых приложений (ключи из documents.ATTACHMENTS)
-    attachments: list[str] = Field(default_factory=list)
 
 
-class LinkCodeOut(BaseModel):
-    code: str
-    deep_link: str
+class ParentLinkAction(BaseModel):
     student_id: int
-    expires_in_min: int = 60
+    max_user_id: int
+    accept: bool = True
+
+
+class NotificationsRequest(BaseModel):
+    max_user_id: int
+    enabled: bool
