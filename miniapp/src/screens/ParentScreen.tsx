@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type ParentChild, type ParentChildExcursion } from "../api";
+import { api, type ParentChild, type ParentChildExcursion, type ParentSearchRow } from "../api";
 import { haptic, openLink, requestContact } from "../max";
 
 const LIGHT_LABEL: Record<string, string> = {
@@ -8,6 +8,79 @@ const LIGHT_LABEL: Record<string, string> = {
   GREY: "Нет ответа",
   RED: "Отказ",
 };
+
+function ParentPicker({
+  userId,
+  onClaimed,
+}: {
+  userId: number | null;
+  onClaimed: (studentName: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [rows, setRows] = useState<ParentSearchRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setRows([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      api
+        .searchParents(query.trim())
+        .then(setRows)
+        .catch((e) => setErr(e.message));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  async function claim(row: ParentSearchRow) {
+    if (!userId) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.claimParent({ parent_id: row.parent_id, max_user_id: userId });
+      onClaimed(r.student_name);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="kv-card">
+      <h3>Найти себя в базе</h3>
+      <p className="kv-muted">
+        Демо-режим для проверки: введите свою фамилию, телефон или имя ребёнка — и нажмите
+        «Это я». Лента заявок привяжется к текущему пользователю.
+      </p>
+      <div className="kv-filters">
+        <input
+          placeholder="Фамилия родителя, телефон или ФИО ребёнка"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      {err && <div className="kv-alert err">{err}</div>}
+      {query.trim().length >= 2 && !rows.length && (
+        <p className="kv-muted">Ничего не найдено. Попросите учителя добавить ребёнка в класс.</p>
+      )}
+      {rows.map((r) => (
+        <div key={r.parent_id} className="kv-row" style={{ marginTop: 8 }}>
+          <span>
+            {r.parent_name} ({r.role}) — {r.student_name}, {r.class_title}
+            {r.claimed && <span className="kv-muted"> · уже привязан</span>}
+          </span>
+          <button className="kv-btn primary" disabled={busy} onClick={() => claim(r)}>
+            Это я
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function ParentScreen({ userId }: { userId: number | null }) {
   const [children, setChildren] = useState<ParentChild[]>([]);
@@ -107,17 +180,26 @@ export default function ParentScreen({ userId }: { userId: number | null }) {
 
   if (!found) {
     return (
-      <div className="kv-card">
-        <h3>Вы пока не привязаны к ребёнку</h3>
-        <p className="kv-muted">
-          Учитель добавляет ребёнка в класс и отправляет вам ссылку-приглашение. Откройте её —
-          бот привяжет вас к профилю ребёнка, и здесь появится лента заявок на выезды.
-        </p>
-        <p className="kv-muted">
-          Если вы учитель — переключите режим кнопкой «Я учитель» внизу экрана.
-        </p>
+      <>
+        <div className="kv-card">
+          <h3>Вы пока не привязаны к ребёнку</h3>
+          <p className="kv-muted">
+            Обычный путь: учитель отправляет ссылку-приглашение, бот привязывает вас к профилю
+            ребёнка. Для проверки без приглашения найдите себя в базе ниже.
+          </p>
+          <p className="kv-muted">
+            Если вы учитель — переключите режим кнопкой «Я учитель» внизу экрана.
+          </p>
+        </div>
         {msg && <div className="kv-alert info">{msg}</div>}
-      </div>
+        <ParentPicker
+          userId={userId}
+          onClaimed={async (name) => {
+            setMsg(`Вы привязаны как родитель: ${name}.`);
+            await load();
+          }}
+        />
+      </>
     );
   }
 

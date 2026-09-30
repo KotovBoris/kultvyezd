@@ -230,6 +230,22 @@ class ParentLinkAction(BaseModel):
     accept: bool = True
 
 
+class ParentSearchRow(BaseModel):
+    parent_id: int
+    parent_name: str
+    role: str
+    phone: str
+    student_id: int
+    student_name: str
+    class_title: str
+    claimed: bool
+
+
+class ParentClaimRequest(BaseModel):
+    parent_id: int
+    max_user_id: int
+
+
 class NotificationsRequest(BaseModel):
     max_user_id: int
     enabled: bool

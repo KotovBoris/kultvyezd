@@ -183,36 +183,67 @@ def seed_catalog(session: Session) -> int:
     return created
 
 
-def seed_demo_school(session: Session) -> int:
-    existing = session.exec(select(School)).first()
+_DEMO_STUDENTS_5A: list[dict] = [
+    {"name": "Ахметова Лия Наилевна", "birth": "2015-04-02",
+     "parents": [{"name": "Ахметова Розалия Ильгизовна", "phone": "+79001234601", "role": "Мама",
+                  "max_user_id": 1007, "confirmed": True}]},
+    {"name": "Борисов Глеб Андреевич", "birth": "2015-08-14",
+     "parents": [{"name": "Борисова Анна Павловна", "phone": "+79001234602", "role": "Мама"}]},
+    {"name": "Гиниятуллина Аделя Маратовна", "birth": "2015-02-27",
+     "parents": [{"name": "Гиниятуллин Марат Рафисович", "phone": "+79001234603", "role": "Папа"}]},
+    {"name": "Дмитриев Лев Игоревич", "birth": "2015-06-09",
+     "parents": [{"name": "Дмитриева Ксения Олеговна", "phone": "+79001234604", "role": "Мама"}]},
+    {"name": "Исмагилова Ясмина Айратовна", "birth": "2015-10-21",
+     "parents": [{"name": "Исмагилова Гузель Фанисовна", "phone": "+79001234605", "role": "Мама"}]},
+    {"name": "Козлов Матвей Денисович", "birth": "2015-12-03",
+     "parents": [{"name": "Козлов Денис Викторович", "phone": "+79001234606", "role": "Папа"}]},
+]
+
+_DEMO_STUDENTS_7V: list[dict] = [
+    {"name": "Латыпова Карина Булатовна", "birth": "2013-01-17",
+     "parents": [{"name": "Латыпов Булат Ирекович", "phone": "+79001234701", "role": "Папа",
+                  "max_user_id": 1008, "confirmed": False}]},
+    {"name": "Морозов Даниил Сергеевич", "birth": "2013-05-29",
+     "parents": [{"name": "Морозова Татьяна Юрьевна", "phone": "+79001234702", "role": "Мама"}]},
+    {"name": "Насырова Диляра Рамилевна", "birth": "2013-09-11",
+     "parents": [{"name": "Насырова Лилия Фаритовна", "phone": "+79001234703", "role": "Мама"}]},
+    {"name": "Осипов Тимофей Максимович", "birth": "2013-03-23",
+     "parents": [{"name": "Осипова Марина Андреевна", "phone": "+79001234704", "role": "Мама"}]},
+    {"name": "Сабирова Амелия Ленаровна", "birth": "2013-07-05",
+     "parents": [{"name": "Сабиров Ленар Азатович", "phone": "+79001234705", "role": "Папа"}]},
+    {"name": "Тихонов Марк Владимирович", "birth": "2013-11-16",
+     "parents": [{"name": "Тихонова Елена Валерьевна", "phone": "+79001234706", "role": "Мама"}]},
+]
+
+
+def _get_or_create_school(session: Session, name: str, number: str) -> int:
+    existing = session.exec(select(School).where(School.name == name)).first()
     if existing:
         return existing.id
-    school = School(name="МБОУ «Гимназия №7» г. Казань", city="Казань", number="7")
+    school = School(name=name, city="Казань", number=number)
     session.add(school)
     session.commit()
     session.refresh(school)
     return school.id
 
 
-def seed_demo_class(session: Session) -> int:
-    existing = session.exec(select(SchoolClass)).first()
-    if existing:
-        return existing.id
-    school_id = seed_demo_school(session)
+def _create_class(session: Session, grade: str, letter: str, school_id: int,
+                  school_number: str, school_name: str, teacher_name: str,
+                  teacher_phone: str, chat_id: int | None, students: list[dict]) -> int:
     klass = SchoolClass(
-        grade="8",
-        letter="Б",
+        grade=grade,
+        letter=letter,
         school_id=school_id,
-        school_number="7",
-        school_name="МБОУ «Гимназия №7» г. Казань",
-        teacher_name="Салимова Гульнара Рифкатовна",
-        teacher_phone="+79001230000",
-        chat_id=-100200300,
+        school_number=school_number,
+        school_name=school_name,
+        teacher_name=teacher_name,
+        teacher_phone=teacher_phone,
+        chat_id=chat_id,
     )
     session.add(klass)
     session.commit()
     session.refresh(klass)
-    for item in _DEMO_STUDENTS:
+    for item in students:
         student = Student(class_id=klass.id, full_name=item["name"], birth_date=date.fromisoformat(item["birth"]))
         session.add(student)
         session.commit()
@@ -230,6 +261,27 @@ def seed_demo_class(session: Session) -> int:
             )
     session.commit()
     return klass.id
+
+
+def seed_demo_class(session: Session) -> int:
+    existing = session.exec(select(SchoolClass)).first()
+    if existing:
+        return existing.id
+    gym7 = _get_or_create_school(session, "МБОУ «Гимназия №7» г. Казань", "7")
+    school33 = _get_or_create_school(session, "МБОУ «СОШ №33» г. Казань", "33")
+    class_8b = _create_class(
+        session, "8", "Б", gym7, "7", "МБОУ «Гимназия №7» г. Казань",
+        "Салимова Гульнара Рифкатовна", "+79001230000", -100200300, _DEMO_STUDENTS,
+    )
+    _create_class(
+        session, "5", "А", gym7, "7", "МБОУ «Гимназия №7» г. Казань",
+        "Иванова Елена Петровна", "+79001230001", None, _DEMO_STUDENTS_5A,
+    )
+    _create_class(
+        session, "7", "В", school33, "33", "МБОУ «СОШ №33» г. Казань",
+        "Хабибуллин Марат Айратович", "+79001230002", None, _DEMO_STUDENTS_7V,
+    )
+    return class_8b
 
 
 def seed_demo_excursion(session: Session) -> int:
@@ -297,6 +349,41 @@ def seed_demo_excursion(session: Session) -> int:
         )
         session.add(part)
     session.commit()
+
+    klass_5a = session.exec(
+        select(SchoolClass).where(SchoolClass.grade == "5", SchoolClass.letter == "А")
+    ).first()
+    free_event = session.exec(
+        select(CultureEvent).where(CultureEvent.is_free == True)  # noqa: E712
+    ).first()
+    if klass_5a and free_event:
+        second = Excursion(
+            class_id=klass_5a.id,
+            culture_event_id=free_event.id,
+            title=free_event.title,
+            location_name=free_event.venue,
+            address=free_event.address,
+            event_date=today + timedelta(days=10),
+            deadline=datetime.now() + timedelta(days=5),
+            ticket_price=0.0,
+            ticket_sale_url=free_event.ticket_url,
+            is_pushkin_card=False,
+            status=ExcursionStatus.VOTING,
+            school_name=klass_5a.school_name,
+            responsible_teacher=klass_5a.teacher_name,
+            order_basis="план воспитательной работы на 2026/2027 учебный год",
+        )
+        session.add(second)
+        session.commit()
+        session.refresh(second)
+        for st in session.exec(select(Student).where(Student.class_id == klass_5a.id)).all():
+            session.add(ExcursionParticipant(
+                excursion_id=second.id,
+                student_id=st.id,
+                consent_status="PENDING",
+                ticket_status=TicketStatus.NOT_REQUIRED,
+            ))
+        session.commit()
     return excursion.id
 
 

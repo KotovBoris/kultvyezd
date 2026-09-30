@@ -64,6 +64,20 @@ export function currentUserId(): number | null {
   return raw && /^\d+$/.test(raw) ? Number(raw) : null;
 }
 
+export function effectiveUserId(): number {
+  const known = currentUserId();
+  if (known) return known;
+  try {
+    const stored = localStorage.getItem("classgo_demo_uid");
+    if (stored && /^\d+$/.test(stored)) return Number(stored);
+    const generated = 500000 + Math.floor(Math.random() * 400000);
+    localStorage.setItem("classgo_demo_uid", String(generated));
+    return generated;
+  } catch {
+    return 599999;
+  }
+}
+
 export function downloadFile(url: string, fileName: string): void {
   const w = bridge();
   if (isInsideMax() && typeof w?.downloadFile === "function") {

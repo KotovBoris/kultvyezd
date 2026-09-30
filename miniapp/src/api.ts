@@ -143,6 +143,17 @@ export interface ParentContext {
   found: boolean;
 }
 
+export interface ParentSearchRow {
+  parent_id: number;
+  parent_name: string;
+  role: string;
+  phone: string;
+  student_id: number;
+  student_name: string;
+  class_title: string;
+  claimed: boolean;
+}
+
 export interface StudentCreatePayload {
   full_name: string;
   birth_date?: string | null;
@@ -270,6 +281,13 @@ export const api = {
 
   parentContext: (maxUserId: number) =>
     req<ParentContext>(`/api/v1/parent/context?max_user_id=${maxUserId}`),
+  searchParents: (query: string) =>
+    req<ParentSearchRow[]>(`/api/v1/parents/search${qs({ query })}`),
+  claimParent: (payload: { parent_id: number; max_user_id: number }) =>
+    req<{ ok: boolean; parent_id: number; student_name: string }>("/api/v1/parent/claim", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   confirmLink: (payload: { student_id: number; max_user_id: number; accept: boolean }) =>
     req<{ ok: boolean; confirmed: boolean; linked: boolean }>("/api/v1/parent/confirm-link", {
       method: "POST",

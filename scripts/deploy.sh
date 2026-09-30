@@ -13,7 +13,7 @@
 #   5. Собирает и поднимает контейнеры (docker compose up -d --build).
 #   6. Ждёт ответ сайта по HTTP и по HTTPS.
 #   7. Прогоняет pytest в одноразовом контейнере на временной базе.
-#      Рабочий файл kultvyezd.db при этом не меняется.
+#      Рабочий файл classgo.db при этом не меняется.
 #   8. Прогоняет HTTP-сценарий по уже поднятому сайту.
 #      Этот сценарий вызывает POST /api/v1/admin/reset-demo и возвращает
 #      демо-данные к исходному виду.
@@ -26,7 +26,7 @@
 # Куда класть:
 #   В домашнюю директорию, не внутрь репозитория:
 #     cp scripts/deploy.sh ~/run.sh && chmod +x ~/run.sh
-#   Запуск из ~/kultvyezd делает git reset и может оборвать сам скрипт,
+#   Запуск из ~/classgo делает git reset и может оборвать сам скрипт,
 #   если эта копия ещё не в origin/main.
 #
 # Требования на сервере: docker, docker compose, git, curl.
@@ -42,8 +42,8 @@ if [[ -n "$running" ]]; then
   docker stop $running
 fi
 
-ROOT="${KULTYYEZD_ROOT:-$HOME/kultvyezd}"
-ENV_SRC="${KULTYYEZD_ENV:-$HOME/.env}"
+ROOT="${CLASSGO_ROOT:-$HOME/classgo}"
+ENV_SRC="${CLASSGO_ENV:-$HOME/.env}"
 REPO="https://github.com/KotovBoris/kultvyezd.git"
 BRANCH="main"
 HEALTH_HTTP="http://127.0.0.1/healthz"
@@ -128,7 +128,9 @@ done
 if [[ "$healthy" != "1" ]]; then
   echo "Сайт не ответил на $HEALTH_HTTP или $HEALTH_HTTPS" >&2
   docker compose ps
-  docker compose logs caddy --tail 40 >&2 || true
+  docker compose logs backend --tail 60 >&2 || true
+  docker compose logs miniapp --tail 20 >&2 || true
+  docker compose logs caddy --tail 20 >&2 || true
   exit 1
 fi
 

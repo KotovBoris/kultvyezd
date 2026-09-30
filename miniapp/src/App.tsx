@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type SchoolClass, type Excursion } from "./api";
-import { currentUserId, deviceName, maxVersion, platform, startParam, isInsideMax } from "./max";
+import { deviceName, effectiveUserId, maxVersion, platform, startParam, isInsideMax } from "./max";
 import { setSession, useSession } from "./store";
 import ExcursionsScreen from "./screens/ExcursionsScreen";
 import DashboardScreen from "./screens/DashboardScreen";
@@ -36,8 +36,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    const uid = currentUserId();
-    setSession({ userId: uid });
+    setSession({ userId: effectiveUserId() });
     const param = startParam();
     if (param && /^\d+$/.test(param)) {
       setSession({ role: "parent", studentId: Number(param) });
@@ -140,6 +139,7 @@ function RoleSwitch() {
 }
 
 function DemoPanel({ onChange }: { onChange: () => void }) {
+  const session = useSession();
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -164,9 +164,10 @@ function DemoPanel({ onChange }: { onChange: () => void }) {
       {open && (
         <>
           <p className="kv-muted">
-            Вне мессенджера роль и пользователь задаются параметрами адресной строки:
-            ?user_id=&lt;MAX id&gt; — идентификатор пользователя. Кнопка ниже сбрасывает
-            статусы демо-выезда для повторного прогона сценария.
+            Текущий пользователь: <b>{session.userId ?? "—"}</b>. Внутри MAX берётся настоящий
+            id, в браузере — параметр адресной строки ?user_id=&lt;id&gt; либо случайный
+            демо-идентификатор, сохранённый в этом браузере. Кнопка ниже возвращает статусы
+            демо-выезда в «ожидает».
           </p>
           <div className="kv-actions">
             <button className="kv-btn" onClick={resetDemo}>

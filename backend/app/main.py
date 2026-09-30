@@ -52,8 +52,10 @@ from .schemas import (
     ImportResult,
     LinkCodeOut,
     NotificationsRequest,
+    ParentClaimRequest,
     ParentLinkAction,
     ParentOut,
+    ParentSearchRow,
     ParticipantRow,
     RemindResponse,
     SchoolCreate,
@@ -809,6 +811,49 @@ def parent_context(max_user_id: int = Query(..., description="MAX user_id род
                    session: Session = Depends(get_session)) -> dict:
     children = services.parent_context(session, max_user_id)
     return {"max_user_id": max_user_id, "children": children, "found": bool(children)}
+
+
+@app.get("/api/v1/parents/search", response_model=list[ParentSearchRow], tags=["parent"])
+def parents_search(query: str = Query(..., min_length=2),
+                   session: Session = Depends(get_session)) -> list[ParentSearchRow]:
+    q = query.strip().lower()
+    rows: list[ParentSearchRow] = []
+    for parent in session.exec(select(ParentContact)).all():
+        student = session.get(Student, parent.student_id)
+        if not student:
+            continue
+        haystack = f"{parent.full_name} {parent.phone_number} {student.full_name}".lower()
+        if q not in haystack:
+            continue
+        klass = session.get(SchoolClass, student.class_id)
+        rows.append(ParentSearchRow(
+            parent_id=parent.id, parent_name=parent.full_name, role=parent.role,
+            phone=parent.phone_number, student_id=student.id, student_name=student.full_name,
+            class_title=klass.title if klass else "", claimed=parent.max_user_id is not None,
+        ))
+        if len(rows) >= 20:
+            break
+    return rows
+
+
+@app.post("/api/v1/parent/claim", tags=["parent"])
+def parent_claim(payload: ParentClaimRequest, session: Session = Depends(get_session)) -> dict:
+    parent = session.get(ParentContact, payload.parent_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Контакт родителя не найден")
+    for other in session.exec(
+        select(ParentContact).where(ParentContact.max_user_id == payload.max_user_id)
+    ).all():
+        if other.id != parent.id and other.student_id == parent.student_id:
+            other.max_user_id = None
+            session.add(other)
+    parent.max_user_id = payload.max_user_id
+    parent.confirmed = True
+    session.add(parent)
+    session.commit()
+    student = session.get(Student, parent.student_id)
+    return {"ok": True, "parent_id": parent.id,
+            "student_name": student.full_name if student else ""}
 
 
 @app.post("/api/v1/parent/confirm-link", tags=["parent"])
