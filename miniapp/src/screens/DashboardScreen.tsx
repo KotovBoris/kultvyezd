@@ -9,6 +9,13 @@ const LABEL: Record<ParticipantRow["traffic_light"], string> = {
   RED: "Отказ",
 };
 
+const PARENT_LABEL: Record<ParticipantRow["parent_status"], string> = {
+  APPROVED: "Аппрувнул",
+  REJECTED: "Отказал",
+  NO_ANSWER: "Не ответил",
+  BOT_INACTIVE: "Бот не активирован",
+};
+
 export default function DashboardScreen({
   excursionId,
   onChange,
@@ -35,6 +42,7 @@ export default function DashboardScreen({
   if (!data) return <div className="kv-card">Загрузка выезда…</div>;
 
   const { excursion: exc, summary, progress_percent, participants } = data;
+  const inactiveCount = participants.filter((p) => p.parent_status === "BOT_INACTIVE").length;
 
   async function remind() {
     setBusy(true);
@@ -44,6 +52,34 @@ export default function DashboardScreen({
       haptic();
     } catch (e: any) {
       setMsg(`Ошибка напоминаний: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function tagInactive() {
+    setBusy(true);
+    try {
+      const r = await api.tagUnactivated(excursionId);
+      setMsg(
+        r.tagged
+          ? `В чат класса отправлен список из ${r.tagged} семей без активированного бота.`
+          : "Все родители уже активировали бота.",
+      );
+    } catch (e: any) {
+      setMsg(`Ошибка: ${e.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function publish() {
+    setBusy(true);
+    try {
+      const r = await api.publish(excursionId);
+      setMsg(`Анонс отправлен в чат класса (${r.chat_id}).`);
+    } catch (e: any) {
+      setMsg(`Ошибка публикации: ${e.message}`);
     } finally {
       setBusy(false);
     }
@@ -118,6 +154,14 @@ export default function DashboardScreen({
           <button className="kv-btn primary" disabled={busy} onClick={remind}>
             Напомнить не ответившим
           </button>
+          <button className="kv-btn" disabled={busy} onClick={publish}>
+            Анонс в чат класса
+          </button>
+          <button className="kv-btn" disabled={busy} onClick={tagInactive}>
+            Тегнуть не активировавших бота{inactiveCount ? ` (${inactiveCount})` : ""}
+          </button>
+        </div>
+        <div className="kv-actions" style={{ marginTop: 6 }}>
           <button className="kv-btn" disabled={busy} onClick={generateOrder}>
             Сформировать приказ (DOCX)
           </button>
@@ -134,7 +178,6 @@ export default function DashboardScreen({
           )}
         </div>
         {msg && <div className="kv-alert info" style={{ marginTop: 10 }}>{msg}</div>}
-        {/* Прямые ссылки — надёжный запасной способ скачивания в любом окружении */}
         <div className="kv-actions" style={{ marginTop: 8 }}>
           <a className="kv-btn ghost" href={docxUrl} download>
             Скачать DOCX (прямая ссылка)
@@ -152,6 +195,7 @@ export default function DashboardScreen({
             <tr>
               <th>Ученик</th>
               <th>Статус</th>
+              <th>Родитель</th>
               <th>Согласие</th>
               <th>Билет</th>
             </tr>
@@ -163,6 +207,7 @@ export default function DashboardScreen({
                 <td>
                   <span className={`kv-badge badge-${p.traffic_light}`}>{LABEL[p.traffic_light]}</span>
                 </td>
+                <td className="kv-muted">{PARENT_LABEL[p.parent_status]}</td>
                 <td className="kv-muted">
                   {p.consent_status === "APPROVED"
                     ? `Подписано${p.signed_by_name ? ` (${p.signed_by_name})` : ""}`

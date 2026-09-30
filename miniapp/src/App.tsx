@@ -1,42 +1,29 @@
-import { Suspense, lazy, useEffect, useMemo, useState } from "react";
-import { api, type SchoolClass, type Excursion, type ParentChild } from "./api";
+import { useEffect, useState } from "react";
+import { api, type SchoolClass, type Excursion } from "./api";
 import { currentUserId, deviceName, maxVersion, platform, startParam, isInsideMax } from "./max";
 import { setSession, useSession } from "./store";
-import SkeletonLoader from "./components/Skeleton";
+import ExcursionsScreen from "./screens/ExcursionsScreen";
+import DashboardScreen from "./screens/DashboardScreen";
+import ParentScreen from "./screens/ParentScreen";
+import ClassesScreen from "./screens/ClassesScreen";
+import WizardScreen from "./screens/WizardScreen";
 
-/**
- * Экраны грузим лениво: на старте нужен только «Выезды класса» (дашборд),
- * а каталог, импорт класса и справка о данных — отдельными чанками. Так
- * начальный JS меньше, а код экрана, который учитель не открывает, не скачивается.
- * SkeletonLoader уже используется как статус загрузки данных — он же закрывает
- * паузу на подгрузку чанка, поэтому экран не «мигает» пустотой.
- */
-const ExcursionsScreen = lazy(() => import("./screens/ExcursionsScreen"));
-const CatalogScreen = lazy(() => import("./screens/CatalogScreen"));
-const DashboardScreen = lazy(() => import("./screens/DashboardScreen"));
-const ParentScreen = lazy(() => import("./screens/ParentScreen"));
-const ImportScreen = lazy(() => import("./screens/ImportScreen"));
-const TransparencyScreen = lazy(() => import("./screens/TransparencyScreen"));
-
-type Tab = "trips" | "catalog" | "class";
+type Tab = "trips" | "classes";
 
 export default function App() {
   const session = useSession();
   const [tab, setTab] = useState<Tab>("trips");
-  // Экран-справка о данных и согласии — доступен из футера (доверие/безопасность).
-  const [transparency, setTransparency] = useState(false);
+  const [wizard, setWizard] = useState(false);
   const [excursions, setExcursions] = useState<Excursion[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
-  // Все дети родителя (BUG: раньше брался только children[0]).
-  const [children, setChildren] = useState<ParentChild[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function reload() {
     setLoading(true);
     try {
-      const [exc, cls] = await Promise.all([api.excursions(), api.classes()]);
+      const [exc, cls] = await Promise.all([api.excursions(), api.classes(session.userId)]);
       setExcursions(exc);
       setClasses(cls);
       setActiveId((prev) => prev ?? exc[0]?.id ?? null);
@@ -48,220 +35,118 @@ export default function App() {
     }
   }
 
-  // Роль: контекст ссылки ?startapp=<student_id> либо привязка MAX-профиля.
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const param = startParam();
-      if (param && /^\d+$/.test(param)) {
-        setSession({ role: "parent", studentId: Number(param) });
-        return;
-      }
-      const uid = currentUserId();
-      if (uid) {
-        try {
-          const ctx = await api.parentContext(uid);
-          if (!cancelled && ctx.found && ctx.children.length) {
-            // Храним всех детей: экран родителя даёт переключатель, если их несколько.
-            setChildren(ctx.children);
-            const child = ctx.children[0];
-            setSession({
-              role: "parent",
-              studentId: child.student_id,
-              resolvedStudentId: child.student_id,
-              resolvedStudentName: child.student_name,
-            });
-          }
-        } catch {
-          /* не привязан — остаёмся учителем */
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    const uid = currentUserId();
+    setSession({ userId: uid });
+    const param = startParam();
+    if (param && /^\d+$/.test(param)) {
+      setSession({ role: "parent", studentId: Number(param) });
+    }
   }, []);
 
   useEffect(() => {
-    reload();
-  }, []);
+    if (session.role === "teacher") reload();
+  }, [session.role, session.userId]);
 
-  const isParent = Boolean(session.role === "parent" && session.studentId);
-
-  // Активный выезд для hero и ведомости — производное значение, считаем в рендере,
-  // а не отдельным состоянием (иначе рассинхрон при перезагрузке данных).
-  const active = useMemo(
-    () => excursions.find((e) => e.id === activeId) ?? null,
-    [excursions, activeId],
-  );
+  if (session.role === "parent") {
+    return (
+      <div className="kv-app">
+        <Header />
+        <ParentScreen userId={session.userId} />
+        <RoleSwitch />
+        <Footer />
+      </div>
+    );
+  }
 
   return (
     <div className="kv-app">
-      <AppHeader />
-      {transparency && (
-        <Suspense fallback={<SkeletonLoader />}>
-          <TransparencyScreen onClose={() => setTransparency(false)} />
-        </Suspense>
+      <Header />
+      {error && (
+        <div className="kv-alert err">
+          {error}
+          <button className="kv-btn ghost" style={{ marginLeft: 8 }} onClick={reload}>
+            Повторить
+          </button>
+        </div>
       )}
-      {isParent ? (
-        <Suspense fallback={<SkeletonLoader />}>
-          <ParentScreen
-            studentId={session.studentId!}
-            studentName={session.resolvedStudentName ?? undefined}
-            excursions={excursions}
-            children={children}
-            onSelectChild={(studentId, studentName) =>
-              setSession({ role: "parent", studentId, resolvedStudentId: studentId, resolvedStudentName: studentName })
-            }
-          />
-        </Suspense>
-      ) : (
+      <div className="kv-tabs">
+        <button className={`kv-tab ${tab === "trips" ? "active" : ""}`} onClick={() => { setTab("trips"); setWizard(false); }}>
+          Мероприятия
+        </button>
+        <button className={`kv-tab ${tab === "classes" ? "active" : ""}`} onClick={() => { setTab("classes"); setWizard(false); }}>
+          Классы
+        </button>
+      </div>
+
+      {loading && <SkeletonLoader />}
+
+      {!loading && tab === "trips" && !wizard && (
         <>
-          {error && (
-            <div className="kv-alert err">
-              {error}
-              <button className="kv-btn ghost" style={{ marginLeft: 8 }} onClick={reload}>
-                Повторить
+          <div className="kv-card">
+            <div className="kv-row">
+              <h3>Мероприятия</h3>
+              <button className="kv-btn primary" onClick={() => setWizard(true)}>
+                Создать мероприятие
               </button>
             </div>
-          )}
-          <div className="kv-tabs">
-            <button className={`kv-tab ${tab === "trips" ? "active" : ""}`} onClick={() => setTab("trips")}>
-              Выезды класса
-            </button>
-            <button className={`kv-tab ${tab === "catalog" ? "active" : ""}`} onClick={() => setTab("catalog")}>
-              Каталог событий
-            </button>
-            <button className={`kv-tab ${tab === "class" ? "active" : ""}`} onClick={() => setTab("class")}>
-              Импорт класса
-            </button>
           </div>
-
-          {/* на вкладке импорта скелетон не нужен: экран не зависит от первичной загрузки */}
-          {loading && tab !== "class" && <SkeletonLoader />}
-
-          {!loading && tab === "trips" && (
-            <>
-              {/* Hero — выезд, который учитель ведёт прямо сейчас (не «большая цифра») */}
-              {active && (
-                <section className="kv-hero" aria-label="Текущий выезд">
-                  <div className="kv-hero-top">
-                    <div>
-                      <h1 className="kv-hero-title">{active.title}</h1>
-                      <p className="kv-hero-where">{active.location_name}</p>
-                    </div>
-                    {active.status === "VOTING" && <span className="kv-chip">сбор ответов</span>}
-                  </div>
-                  <dl className="kv-hero-when">
-                    <div>
-                      <dt>Дата</dt>
-                      <dd>{active.event_date ?? "уточняется"}</dd>
-                    </div>
-                    {active.gathering_time && (
-                      <div>
-                        <dt>Сбор</dt>
-                        <dd>{active.gathering_time}</dd>
-                      </div>
-                    )}
-                    {active.return_time && (
-                      <div>
-                        <dt>Возвращение</dt>
-                        <dd>{active.return_time}</dd>
-                      </div>
-                    )}
-                    <div>
-                      <dt>Билет</dt>
-                      <dd>{active.ticket_price > 0 ? `${active.ticket_price.toFixed(0)} ₽` : "бесплатно"}</dd>
-                    </div>
-                  </dl>
-                </section>
-              )}
-              <Suspense fallback={<SkeletonLoader />}>
-                <ExcursionsScreen excursions={excursions} activeId={activeId} onSelect={setActiveId} />
-                {activeId && <DashboardScreen excursionId={activeId} onChange={reload} />}
-              </Suspense>
-            </>
-          )}
-
-          {!loading && tab === "catalog" && (
-            <Suspense fallback={<SkeletonLoader />}>
-              <CatalogScreen
-                classes={classes}
-                onCreated={async (id) => {
-                  await reload();
-                  setActiveId(id);
-                  setTab("trips");
-                }}
-              />
-            </Suspense>
-          )}
-
-          {/* монтируем всегда при активной вкладке: после импорта reload() не должен
-              размонтировать экран и стирать показанный результат */}
-          {tab === "class" && (
-            <Suspense fallback={<SkeletonLoader />}>
-              <ImportScreen
-                onImported={async () => {
-                  await reload();
-                }}
-              />
-            </Suspense>
-          )}
-
-          {!isInsideMax() && !transparency && (
-            <ViewPanel
-              classes={classes}
-              onChange={reload}
-              onOpenParent={(studentId, studentName) =>
-                setSession({ role: "parent", studentId, resolvedStudentId: studentId, resolvedStudentName: studentName })
-              }
-            />
-          )}
+          <ExcursionsScreen excursions={excursions} activeId={activeId} onSelect={setActiveId} />
+          {activeId && <DashboardScreen excursionId={activeId} onChange={reload} />}
         </>
       )}
 
-      <Footer onOpenTransparency={() => setTransparency(true)} />
+      {!loading && tab === "trips" && wizard && (
+        <WizardScreen
+          classes={classes}
+          onCancel={() => setWizard(false)}
+          onCreated={async (id) => {
+            setWizard(false);
+            await reload();
+            setActiveId(id);
+          }}
+        />
+      )}
+
+      {!loading && tab === "classes" && (
+        <ClassesScreen classes={classes} userId={session.userId} onChange={reload} />
+      )}
+
+      {!isInsideMax() && <DemoPanel onChange={reload} />}
+
+      <RoleSwitch />
+      <Footer />
     </div>
   );
 }
 
-/** Шапка: знак ClassGo, название, подзаголовок. */
-function AppHeader() {
+function RoleSwitch() {
+  const session = useSession();
   return (
-    <div className="kv-header">
-      <div className="kv-logo" aria-hidden="true">
-        CG
-      </div>
-      <div>
-        <p className="kv-title">ClassGo</p>
-        <p className="kv-subtitle">Школьные выезды: согласия, билеты, приказ</p>
+    <div className="kv-card">
+      <div className="kv-row">
+        <span className="kv-muted">
+          Режим: <b>{session.role === "parent" ? "родитель" : "учитель"}</b>
+        </span>
+        <button
+          className="kv-btn ghost"
+          onClick={() => setSession({ role: session.role === "parent" ? "teacher" : "parent" })}
+        >
+          {session.role === "parent" ? "Я учитель" : "Я родитель"}
+        </button>
       </div>
     </div>
   );
 }
 
-function ViewPanel({
-  classes,
-  onChange,
-  onOpenParent,
-}: {
-  classes: SchoolClass[];
-  onChange: () => void;
-  onOpenParent: (studentId: number, studentName: string) => void;
-}) {
+function DemoPanel({ onChange }: { onChange: () => void }) {
   const [open, setOpen] = useState(false);
-  // Плоский список учеников всех классов — пересчитываем только при смене классов,
-  // а не на каждый рендер (разворачивание панели, сообщение и т.п.).
-  const students = useMemo(
-    () => classes.flatMap((c) => c.students.map((s) => ({ ...s, klass: c.title }))),
-    [classes],
-  );
   const [msg, setMsg] = useState<string | null>(null);
 
   async function resetDemo() {
     try {
       const r = await api.resetDemo();
-      setMsg(`Демо сброшено: ${r.reset_participants} участников → «ожидает».`);
+      setMsg(`Демо сброшено: ${r.reset_participants} участников переведены в «ожидает».`);
       onChange();
     } catch (e: any) {
       setMsg(`Ошибка сброса: ${e.message}`);
@@ -278,27 +163,12 @@ function ViewPanel({
       </div>
       {open && (
         <>
-          <p className="kv-muted" style={{ marginTop: 8 }}>
-            Ручная проверка без мессенджера: откройте экран родителя и сбросьте демо для повторного
-            прохода сценария.
+          <p className="kv-muted">
+            Вне мессенджера роль и пользователь задаются параметрами адресной строки:
+            ?user_id=&lt;MAX id&gt; — идентификатор пользователя. Кнопка ниже сбрасывает
+            статусы демо-выезда для повторного прогона сценария.
           </p>
-          <div className="kv-filters">
-            <select
-              defaultValue=""
-              aria-label="Открыть экран родителя"
-              onChange={(e) => {
-                if (!e.target.value) return;
-                const s = students.find((x) => String(x.id) === e.target.value);
-                if (s) onOpenParent(s.id, s.full_name);
-              }}
-            >
-              <option value="">Открыть экран родителя…</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.full_name} ({s.klass})
-                </option>
-              ))}
-            </select>
+          <div className="kv-actions">
             <button className="kv-btn" onClick={resetDemo}>
               Сбросить демо-данные
             </button>
@@ -310,20 +180,45 @@ function ViewPanel({
   );
 }
 
-function Footer({ onOpenTransparency }: { onOpenTransparency: () => void }) {
+function SkeletonLoader() {
+  return (
+    <>
+      <div className="kv-card kv-skeleton">
+        <div className="kv-skel-line w60" />
+        <div className="kv-skel-line w90" />
+        <div className="kv-skel-line w80" />
+        <div className="kv-skel-bar" />
+      </div>
+      <div className="kv-card kv-skeleton">
+        <div className="kv-skel-line w40" />
+        <div className="kv-skel-line w90" />
+      </div>
+    </>
+  );
+}
+
+function Header() {
+  return (
+    <div className="kv-header">
+      <div className="kv-logo">КВ</div>
+      <div>
+        <p className="kv-title">ClassGo</p>
+        <p className="kv-subtitle">Организация школьных культурных выездов в MAX</p>
+      </div>
+    </div>
+  );
+}
+
+function Footer() {
   const inside = isInsideMax();
   return (
     <div className="kv-footer-note">
-      платформа {platform()} · {deviceName()} · MAX {maxVersion()}
-      {!inside && <> · запущено вне MAX</>}
-      {startParam() && <> · контекст {startParam()}</>}
+      Платформа: <b>{platform()}</b> · устройство: <b>{deviceName()}</b> · MAX: <b>{maxVersion()}</b>
+      {!inside && <> · запущено вне MAX (веб-проверка)</>}
+      {startParam() && <> · контекст: <b>{startParam()}</b></>}
       <br />
-      Данные каталога — модельные (снапшот PRO.Культура.РФ / «Пушкинская карта»). Оплата билетов —
-      напрямую на сайте учреждения культуры.
-      <br />
-      <button type="button" className="kv-linkbtn" onClick={onOpenTransparency}>
-        Прозрачность: данные и согласие
-      </button>
+      Данные каталога — модельные (снапшот PRO.Культура.РФ / «Пушкинская карта», г. Казань).
+      Оплата билетов происходит напрямую на сайте учреждения культуры.
     </div>
   );
 }

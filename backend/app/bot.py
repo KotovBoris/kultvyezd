@@ -24,7 +24,7 @@ from .models import (
     TrafficLight,
 )
 
-log = logging.getLogger("kultvyezd.bot")
+log = logging.getLogger("classgo.bot")
 settings = get_settings()
 
 
@@ -58,7 +58,7 @@ class BotService:
             text = "Код привязки не найден или устарел. Новый код можно взять в мини-приложении."
         else:
             text = (
-                "Здравствуйте, это бот «КультВыезд».\n\n"
+                "Здравствуйте, это бот «ClassGo».\n\n"
                 "Классный руководитель собирает здесь группу на культурный выезд. "
                 "Родитель подтверждает участие ребёнка и при необходимости открывает ссылку на кассу музея.\n\n"
                 "Команды:\n"

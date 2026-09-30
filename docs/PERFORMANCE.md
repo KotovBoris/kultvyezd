@@ -12,7 +12,7 @@ Chromium через Playwright (Pixel 7), замеры — `ui-e2e/perf/measure.
 
 ```bash
 # 1. Стек (mini-app + backend)
-cd hackathon/kultvyezd
+cd hackathon/classgo
 export PATH="/opt/homebrew/bin:$PATH"
 docker compose up -d --build
 

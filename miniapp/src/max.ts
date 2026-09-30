@@ -1,9 +1,3 @@
-/**
- * Обёртка над MAX Bridge (window.WebApp).
- * Во всех методах есть graceful fallback: если мини-приложение открыто в обычном
- * браузере (например, при автоматизированной проверке), вызовы не падают,
- * а ведут себя как обычные веб-операции.
- */
 export interface MaxInitUser {
   id: number;
   first_name?: string;
@@ -55,40 +49,21 @@ export function initDataUnsafe(): MaxInitData | null {
   }
 }
 
-/** Значение из ?startapp=... (передаётся в мини-приложение из бота). */
 export function startParam(): string | null {
   const fromBridge = initDataUnsafe()?.start_param;
   if (fromBridge) return fromBridge;
-  // Fallback для веб-проверки: query-параметры
   const url = new URL(window.location.href);
   return url.searchParams.get("startapp") || url.searchParams.get("student_id");
 }
 
 export function currentUserId(): number | null {
-  return initDataUnsafe()?.user?.id ?? null;
-}
-
-/**
- * id чата MAX, из которого открыт мини-апп: нужен, чтобы опубликовать карточку
- * выезда именно в чат класса (UC-3). Внутри MAX берём из initDataUnsafe().chat,
- * вне MAX (веб-проверка) — из ?chat_id=..., иначе null (кнопка публикации
- * предложит ввести id вручную).
- */
-export function currentChatId(): number | null {
-  const fromBridge = initDataUnsafe()?.chat?.id;
+  const fromBridge = initDataUnsafe()?.user?.id;
   if (fromBridge) return fromBridge;
   const url = new URL(window.location.href);
-  const q = url.searchParams.get("chat_id");
-  return q && /^-?\d+$/.test(q) ? Number(q) : null;
+  const raw = url.searchParams.get("user_id");
+  return raw && /^\d+$/.test(raw) ? Number(raw) : null;
 }
 
-/**
- * Скачивание файла.
- * ВАЖНО: нативный WebApp.downloadFile существует и в обычном браузере (библиотека
- * MAX Bridge подключена всегда), но по документации MAX «в браузере метод не работает»
- * — вызов молча ничего не делает. Поэтому используем его ТОЛЬКО внутри мессенджера,
- * а в браузере — обычную ссылку с атрибутом download.
- */
 export function downloadFile(url: string, fileName: string): void {
   const w = bridge();
   if (isInsideMax() && typeof w?.downloadFile === "function") {
@@ -96,7 +71,7 @@ export function downloadFile(url: string, fileName: string): void {
       w.downloadFile(url, fileName);
       return;
     } catch {
-      /* fallthrough — попробуем браузерный способ */
+      /* fallthrough */
     }
   }
   const a = document.createElement("a");
@@ -108,7 +83,6 @@ export function downloadFile(url: string, fileName: string): void {
   a.remove();
 }
 
-/** Открытие внешней ссылки (например, билетного шлюза музея). */
 export function openLink(url: string): void {
   const w = bridge();
   if (isInsideMax() && typeof w?.openLink === "function") {
@@ -122,29 +96,15 @@ export function openLink(url: string): void {
   window.open(url, "_blank", "noopener");
 }
 
-/** Прямая HTTPS-ссылка на файл — используется как запасной вариант в интерфейсе. */
 export function fileUrl(url: string): string {
   return url;
 }
 
-/**
- * Запрос номера телефона у пользователя (для привязки родителя к ученику).
- *
- * ВАЖНО: нативный диалог MAX может не ответить вовсе (в браузере, при отказе,
- * при сбое моста) — тогда промис никогда не завершается. Раньше это подвешивало
- * отправку согласия в состоянии «Отправляем…» навсегда. Телефон здесь
- * необязателен, поэтому ограничиваем ожидание и возвращаем null.
- */
-export async function requestContact(
-  timeoutMs = 5000,
-): Promise<{ phone: string; authDate: string; hash: string } | null> {
+export async function requestContact(): Promise<{ phone: string; authDate: string; hash: string } | null> {
   const w = bridge();
   if (!w?.requestContact) return null;
   try {
-    return await Promise.race([
-      w.requestContact(),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
-    ]);
+    return await w.requestContact();
   } catch {
     return null;
   }
@@ -165,6 +125,6 @@ export function haptic(): void {
   try {
     bridge()?.HapticFeedback?.impactOccurred?.("light");
   } catch {
-    /* необязательно */
+    /* optional */
   }
 }

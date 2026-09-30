@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     MAX_CA_BUNDLE: str = ""
     MAX_TLS_INSECURE: bool = False
 
-    DATABASE_URL: str = "sqlite:///./data/kultvyezd.db"
+    DATABASE_URL: str = "sqlite:///./data/classgo.db"
     MINIAPP_BASE_URL: str = "http://localhost:8080"
     PUBLIC_BASE_URL: str = "http://localhost:8080"
     MAX_VALIDATE_INIT_DATA: bool = False

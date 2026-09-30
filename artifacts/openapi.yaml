@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: ClassGo API
-  description: Сервис организации школьных культурных выездов. Данные каталога — модельные (см. поле source), внешняя интеграция
-    с PRO.Культура.РФ заглушена.
+  description: Сервис организации школьных культурных выездов. Данные каталога — модельные
+    (см. поле source), внешняя интеграция с PRO.Культура.РФ заглушена.
   version: 1.0.0
 paths:
   /healthz:
@@ -92,6 +92,101 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/schools:
+    get:
+      tags:
+      - schools
+      summary: List Schools
+      operationId: list_schools_api_v1_schools_get
+      parameters:
+      - name: query
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Query
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SchoolOut'
+                title: Response List Schools Api V1 Schools Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - schools
+      summary: Create School
+      operationId: create_school_api_v1_schools_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchoolCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchoolOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/schools/{school_id}/share:
+    post:
+      tags:
+      - schools
+      summary: Share School
+      operationId: share_school_api_v1_schools__school_id__share_post
+      parameters:
+      - name: school_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: School Id
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/classes/import:
     post:
       tags:
@@ -113,6 +208,14 @@ paths:
           type: string
           default: А
           title: Letter
+      - name: school_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: School Id
       - name: school_number
         in: query
         required: false
@@ -134,6 +237,14 @@ paths:
           type: string
           default: ''
           title: Teacher Name
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
       requestBody:
         required: true
         content:
@@ -154,21 +265,60 @@ paths:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/classes:
+    post:
+      tags:
+      - classes
+      summary: Create Class
+      operationId: create_class_api_v1_classes_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
     get:
       tags:
       - classes
       summary: List Classes
       operationId: list_classes_api_v1_classes_get
+      parameters:
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
+                type: array
                 items:
                   $ref: '#/components/schemas/ClassOut'
-                type: array
                 title: Response List Classes Api V1 Classes Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/classes/{class_id}/roster:
     get:
       tags:
@@ -182,6 +332,14 @@ paths:
         schema:
           type: integer
           title: Class Id
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
       responses:
         '200':
           description: Successful Response
@@ -189,6 +347,161 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClassOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/classes/{class_id}:
+    patch:
+      tags:
+      - classes
+      summary: Update Class
+      operationId: update_class_api_v1_classes__class_id__patch
+      parameters:
+      - name: class_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Class Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClassUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClassOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/classes/{class_id}/students:
+    post:
+      tags:
+      - classes
+      summary: Add Student
+      operationId: add_student_api_v1_classes__class_id__students_post
+      parameters:
+      - name: class_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Class Id
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StudentCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentOut'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/classes/{class_id}/students/{student_id}:
+    delete:
+      tags:
+      - classes
+      summary: Remove Student
+      operationId: remove_student_api_v1_classes__class_id__students__student_id__delete
+      parameters:
+      - name: class_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Class Id
+      - name: student_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Student Id
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Remove Student Api V1 Classes  Class Id  Students  Student
+                  Id  Delete
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/classes/{class_id}/share:
+    post:
+      tags:
+      - classes
+      summary: Share Class
+      operationId: share_class_api_v1_classes__class_id__share_post
+      parameters:
+      - name: class_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Class Id
+      - name: user_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShareRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareOut'
         '422':
           description: Validation Error
           content:
@@ -292,7 +605,6 @@ paths:
       tags:
       - excursions
       summary: Excursion Participants
-      description: 'Публичный экран родителя: ученик → участие (для mini-app по контексту).'
       operationId: excursion_participants_api_v1_excursions__excursion_id__participants_get
       parameters:
       - name: excursion_id
@@ -309,7 +621,8 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
-                title: Response Excursion Participants Api V1 Excursions  Excursion Id  Participants Get
+                title: Response Excursion Participants Api V1 Excursions  Excursion
+                  Id  Participants Get
         '422':
           description: Validation Error
           content:
@@ -411,7 +724,6 @@ paths:
       tags:
       - consent
       summary: Publish Excursion
-      description: Публикация карточки выезда в чат класса MAX (инлайн-кнопка открытия приложения).
       operationId: publish_excursion_api_v1_excursions__excursion_id__publish_post
       parameters:
       - name: excursion_id
@@ -422,9 +734,11 @@ paths:
           title: Excursion Id
       - name: chat_id
         in: query
-        required: true
+        required: false
         schema:
-          type: integer
+          anyOf:
+          - type: integer
+          - type: 'null'
           title: Chat Id
       responses:
         '200':
@@ -434,7 +748,45 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
-                title: Response Publish Excursion Api V1 Excursions  Excursion Id  Publish Post
+                title: Response Publish Excursion Api V1 Excursions  Excursion Id  Publish
+                  Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/excursions/{excursion_id}/tag-unactivated:
+    post:
+      tags:
+      - consent
+      summary: Tag Unactivated
+      operationId: tag_unactivated_api_v1_excursions__excursion_id__tag_unactivated_post
+      parameters:
+      - name: excursion_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Excursion Id
+      - name: chat_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Chat Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Tag Unactivated Api V1 Excursions  Excursion Id  Tag
+                  Unactivated Post
         '422':
           description: Validation Error
           content:
@@ -525,12 +877,139 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/parent/context:
+    get:
+      tags:
+      - parent
+      summary: Parent Context
+      operationId: parent_context_api_v1_parent_context_get
+      parameters:
+      - name: max_user_id
+        in: query
+        required: true
+        schema:
+          type: integer
+          description: MAX user_id родителя (после привязки)
+          title: Max User Id
+        description: MAX user_id родителя (после привязки)
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+                title: Response Parent Context Api V1 Parent Context Get
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/parent/confirm-link:
+    post:
+      tags:
+      - parent
+      summary: Parent Confirm Link
+      operationId: parent_confirm_link_api_v1_parent_confirm_link_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ParentLinkAction'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Parent Confirm Link Api V1 Parent Confirm Link Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/parent/notifications:
+    post:
+      tags:
+      - parent
+      summary: Parent Notifications
+      operationId: parent_notifications_api_v1_parent_notifications_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationsRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Parent Notifications Api V1 Parent Notifications Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/max/validate-init-data:
+    post:
+      tags:
+      - max
+      summary: Validate Init Data
+      operationId: validate_init_data_api_v1_max_validate_init_data_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: true
+              type: object
+              title: Payload
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Validate Init Data Api V1 Max Validate Init Data Post
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/admin/reset-demo:
+    post:
+      tags:
+      - service
+      summary: Reset Demo
+      operationId: reset_demo_api_v1_admin_reset_demo_post
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties: true
+                type: object
+                title: Response Reset Demo Api V1 Admin Reset Demo Post
   /webhook/max:
     post:
       tags:
       - max
       summary: Max Webhook
-      description: Приём обновлений MAX (production-канал). Обрабатываем и одиночный Update, и список.
       operationId: max_webhook_webhook_max_post
       responses:
         '200':
@@ -540,6 +1019,13 @@ paths:
               schema: {}
 components:
   schemas:
+    AccessRole:
+      type: string
+      enum:
+      - OWNER
+      - EDIT
+      - READ
+      title: AccessRole
     Body_import_class_api_v1_classes_import_post:
       properties:
         file:
@@ -550,6 +1036,51 @@ components:
       required:
       - file
       title: Body_import_class_api_v1_classes_import_post
+    ClassCreate:
+      properties:
+        grade:
+          type: string
+          title: Grade
+        letter:
+          type: string
+          title: Letter
+          default: ''
+        school_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: School Id
+        school_name:
+          type: string
+          title: School Name
+          default: ''
+        school_number:
+          type: string
+          title: School Number
+          default: ''
+        teacher_name:
+          type: string
+          title: Teacher Name
+          default: ''
+        chat_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Chat Id
+        user_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
+        students:
+          items:
+            $ref: '#/components/schemas/StudentCreate'
+          type: array
+          title: Students
+      type: object
+      required:
+      - grade
+      title: ClassCreate
     ClassOut:
       properties:
         id:
@@ -558,6 +1089,11 @@ components:
         title:
           type: string
           title: Title
+        school_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: School Id
         school_number:
           type: string
           title: School Number
@@ -567,6 +1103,20 @@ components:
         teacher_name:
           type: string
           title: Teacher Name
+        chat_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Chat Id
+        owner_user_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Owner User Id
+        can_edit:
+          type: boolean
+          title: Can Edit
+          default: true
         students:
           items:
             $ref: '#/components/schemas/StudentOut'
@@ -580,6 +1130,40 @@ components:
       - school_name
       - teacher_name
       title: ClassOut
+    ClassUpdate:
+      properties:
+        grade:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Grade
+        letter:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Letter
+        school_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: School Id
+        teacher_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Teacher Name
+        chat_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Chat Id
+        user_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
+      type: object
+      title: ClassUpdate
     ConsentRequest:
       properties:
         student_id:
@@ -608,6 +1192,16 @@ components:
           type: string
           title: Source
           default: miniapp
+        max_user_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Max User Id
+        init_data:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Init Data
       type: object
       required:
       - student_id
@@ -976,6 +1570,69 @@ components:
       - deep_link
       - student_id
       title: LinkCodeOut
+    NotificationsRequest:
+      properties:
+        max_user_id:
+          type: integer
+          title: Max User Id
+        enabled:
+          type: boolean
+          title: Enabled
+      type: object
+      required:
+      - max_user_id
+      - enabled
+      title: NotificationsRequest
+    ParentLinkAction:
+      properties:
+        student_id:
+          type: integer
+          title: Student Id
+        max_user_id:
+          type: integer
+          title: Max User Id
+        accept:
+          type: boolean
+          title: Accept
+          default: true
+      type: object
+      required:
+      - student_id
+      - max_user_id
+      title: ParentLinkAction
+    ParentOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        full_name:
+          type: string
+          title: Full Name
+        phone_number:
+          type: string
+          title: Phone Number
+        role:
+          type: string
+          title: Role
+        confirmed:
+          type: boolean
+          title: Confirmed
+        bot_activated:
+          type: boolean
+          title: Bot Activated
+        notifications_enabled:
+          type: boolean
+          title: Notifications Enabled
+      type: object
+      required:
+      - id
+      - full_name
+      - phone_number
+      - role
+      - confirmed
+      - bot_activated
+      - notifications_enabled
+      title: ParentOut
     ParticipantRow:
       properties:
         student_id:
@@ -990,6 +1647,19 @@ components:
           $ref: '#/components/schemas/ConsentStatus'
         ticket_status:
           $ref: '#/components/schemas/TicketStatus'
+        bot_activated:
+          type: boolean
+          title: Bot Activated
+          default: false
+        parent_status:
+          type: string
+          enum:
+          - APPROVED
+          - REJECTED
+          - NO_ANSWER
+          - BOT_INACTIVE
+          title: Parent Status
+          default: NO_ANSWER
         signed_by_name:
           anyOf:
           - type: string
@@ -1042,6 +1712,113 @@ components:
       - targeted
       - delivered
       title: RemindResponse
+    SchoolCreate:
+      properties:
+        name:
+          type: string
+          title: Name
+        city:
+          type: string
+          title: City
+          default: ''
+        number:
+          type: string
+          title: Number
+          default: ''
+        user_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: User Id
+      type: object
+      required:
+      - name
+      title: SchoolCreate
+    SchoolOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        city:
+          type: string
+          title: City
+        number:
+          type: string
+          title: Number
+        owner_user_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Owner User Id
+        classes_count:
+          type: integer
+          title: Classes Count
+          default: 0
+      type: object
+      required:
+      - id
+      - name
+      - city
+      - number
+      title: SchoolOut
+    ShareOut:
+      properties:
+        user_id:
+          type: integer
+          title: User Id
+        role:
+          $ref: '#/components/schemas/AccessRole'
+      type: object
+      required:
+      - user_id
+      - role
+      title: ShareOut
+    ShareRequest:
+      properties:
+        user_id:
+          type: integer
+          title: User Id
+        role:
+          type: string
+          enum:
+          - EDIT
+          - READ
+          title: Role
+          default: READ
+      type: object
+      required:
+      - user_id
+      title: ShareRequest
+    StudentCreate:
+      properties:
+        full_name:
+          type: string
+          title: Full Name
+        birth_date:
+          anyOf:
+          - type: string
+            format: date
+          - type: 'null'
+          title: Birth Date
+        parent_phone:
+          type: string
+          title: Parent Phone
+          default: ''
+        parent_name:
+          type: string
+          title: Parent Name
+          default: ''
+        parent_role:
+          type: string
+          title: Parent Role
+          default: Законный представитель
+      type: object
+      required:
+      - full_name
+      title: StudentCreate
     StudentOut:
       properties:
         id:
@@ -1061,6 +1838,11 @@ components:
             type: string
           type: array
           title: Parent Phones
+        parents:
+          items:
+            $ref: '#/components/schemas/ParentOut'
+          type: array
+          title: Parents
       type: object
       required:
       - id
@@ -1081,6 +1863,11 @@ components:
           type: string
           title: Source
           default: miniapp
+        init_data:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Init Data
       type: object
       required:
       - student_id

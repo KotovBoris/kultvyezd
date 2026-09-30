@@ -1,6 +1,5 @@
 import type { Excursion } from "../api";
 
-/** Журнал выездов класса: строки выбирают активный выезд для hero и дашборда. */
 export default function ExcursionsScreen({
   excursions,
   activeId,
@@ -13,16 +12,16 @@ export default function ExcursionsScreen({
   if (!excursions.length) {
     return (
       <div className="kv-card">
-        <p className="kv-section">Журнал выездов</p>
+        <p className="kv-section">Журнал мероприятий</p>
         <div className="kv-empty">
-          Пока ни одного выезда. Соберите первый во вкладке «Каталог событий».
+          Пока ни одного мероприятия. Нажмите «Создать мероприятие», чтобы собрать первое.
         </div>
       </div>
     );
   }
   return (
     <div className="kv-card">
-      <p className="kv-section">Журнал выездов · {excursions.length}</p>
+      <p className="kv-section">Журнал мероприятий · {excursions.length}</p>
       <table className="kv-table">
         <thead>
           <tr>
@@ -37,7 +36,6 @@ export default function ExcursionsScreen({
             return (
               <tr key={e.id} className={active ? "is-active" : undefined}>
                 <td>
-                  {/* Кнопка, а не tr onClick: строка выбирается и с клавиатуры */}
                   <button
                     type="button"
                     className="kv-rowbtn"

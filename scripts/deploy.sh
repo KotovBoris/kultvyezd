@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# КультВыезд — выкладка на сервер одной командой.
+# ClassGo — выкладка на сервер одной командой.
 #
 # Что делает:
 #   1. Останавливает все уже запущенные контейнеры на машине (docker stop).
@@ -152,4 +152,4 @@ docker run --rm --network host \
 docker compose ps
 curl -fsS --resolve "213.193.198.71:443:127.0.0.1" "$HEALTH_HTTPS"
 echo
-echo "КультВыезд запущен: $PUBLIC_ORIGIN"
+echo "ClassGo запущен: $PUBLIC_ORIGIN"

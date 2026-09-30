@@ -65,7 +65,7 @@ from .schemas import (
     TicketConfirmRequest,
 )
 
-log = logging.getLogger("kultvyezd")
+log = logging.getLogger("classgo")
 settings = get_settings()
 
 _poll_task: asyncio.Task | None = None
@@ -221,7 +221,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="КультВыезд API",
+    title="ClassGo API",
     description=(
         "Сервис организации школьных культурных выездов. "
         "Данные каталога — модельные (см. поле source), внешняя интеграция с PRO.Культура.РФ заглушена."
@@ -243,7 +243,7 @@ def healthz() -> dict:
 @app.get("/api/v1/meta", tags=["service"])
 def meta() -> dict:
     return {
-        "solution": "КультВыезд",
+        "solution": "ClassGo",
         "version": __version__,
         "dataset": {
             "catalog_source": SOURCE,
