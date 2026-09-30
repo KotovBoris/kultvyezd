@@ -13,7 +13,7 @@ def _csv(rows: list[str]) -> bytes:
 
 def test_CLS_1_demo_class(client: TestClient, first_class: dict) -> None:
     assert first_class["title"] == "8Б"
-    assert len(first_class["students"]) >= 20
+    assert len(first_class["students"]) >= 5
 
 
 def test_CLS_2_roster(client: TestClient, first_class: dict) -> None:

@@ -85,31 +85,71 @@ _EVENTS: list[dict] = [
          description="Профориентационная экскурсия."),
 ]
 
-_DEMO_STUDENTS: list[tuple[str, str, str, str]] = [
-    ("Абдуллина Алия Ильдаровна", "2010-03-12", "+79001234501", "Мама"),
-    ("Бикмуллин Тимур Ринатович", "2010-05-04", "+79001234502", "Папа"),
-    ("Валеева Дина Артуровна", "2010-01-22", "+79001234503", "Мама"),
-    ("Гайнуллин Артём Русланович", "2010-07-16", "+79001234504", "Мама"),
-    ("Давлетшина Камиля Маратовна", "2010-09-09", "+79001234505", "Мама"),
-    ("Егоров Никита Сергеевич", "2010-02-28", "+79001234506", "Папа"),
-    ("Журавлёва София Андреевна", "2010-11-11", "+79001234507", "Мама"),
-    ("Зарипов Ильназ Ленарович", "2010-04-19", "+79001234508", "Папа"),
-    ("Иванова Полина Дмитриевна", "2010-06-30", "+79001234509", "Мама"),
-    ("Каримов Ранель Ильдарович", "2010-08-08", "+79001234510", "Мама"),
-    ("Лебедева Мария Алексеевна", "2010-10-23", "+79001234511", "Мама"),
-    ("Мифтахов Амир Рустемович", "2010-12-05", "+79001234512", "Папа"),
-    ("Нигматуллина Азалия Ринатовна", "2010-03-27", "+79001234513", "Мама"),
-    ("Орлова Ева Максимовна", "2010-01-15", "+79001234514", "Мама"),
-    ("Петров Арсений Иванович", "2010-05-21", "+79001234515", "Папа"),
-    ("Рахимова Эмилия Азатовна", "2010-07-03", "+79001234516", "Мама"),
-    ("Сафин Данияр Ирекович", "2010-09-18", "+79001234517", "Мама"),
-    ("Тимофеева Варвара Олеговна", "2010-02-09", "+79001234518", "Мама"),
-    ("Усманов Карим Наилевич", "2010-04-26", "+79001234519", "Папа"),
-    ("Фёдорова Алиса Павловна", "2010-06-14", "+79001234520", "Мама"),
-    ("Хайруллина Ясмина Рушановна", "2010-08-25", "+79001234521", "Мама"),
-    ("Царёва Дарья Валерьевна", "2010-10-07", "+79001234522", "Мама"),
-    ("Шакиров Ильмир Маратович", "2010-12-19", "+79001234523", "Папа"),
-    ("Юсупова Амина Ринатовна", "2010-03-30", "+79001234524", "Мама"),
+_DEMO_STUDENTS: list[dict] = [
+    {
+        "name": "Абдуллина Алия Ильдаровна",
+        "birth": "2010-03-12",
+        "parents": [
+            {"name": "Абдуллина Гульнара Рамилевна", "phone": "+79001234501", "role": "Мама",
+             "max_user_id": 1001, "confirmed": True},
+            {"name": "Абдуллин Ильдар Наилевич", "phone": "+79001234502", "role": "Папа",
+             "max_user_id": 1002, "confirmed": True},
+        ],
+    },
+    {
+        "name": "Абдуллин Тимур Ильдарович",
+        "birth": "2012-05-04",
+        "parents": [
+            {"name": "Абдуллина Гульнара Рамилевна", "phone": "+79001234501", "role": "Мама",
+             "max_user_id": 1001, "confirmed": True},
+        ],
+    },
+    {
+        "name": "Бикмуллин Марат Ринатович",
+        "birth": "2010-01-22",
+        "parents": [
+            {"name": "Бикмуллин Ринат Айратович", "phone": "+79001234503", "role": "Папа",
+             "max_user_id": 1003, "confirmed": False},
+        ],
+    },
+    {
+        "name": "Валеева Дина Артуровна",
+        "birth": "2010-07-16",
+        "parents": [
+            {"name": "Валеева Эльвира Маратовна", "phone": "+79001234504", "role": "Мама"},
+        ],
+    },
+    {
+        "name": "Гайнуллин Артём Русланович",
+        "birth": "2010-09-09",
+        "parents": [
+            {"name": "Гайнуллина Алсу Фаридовна", "phone": "+79001234505", "role": "Мама",
+             "max_user_id": 1004, "confirmed": True},
+        ],
+    },
+    {
+        "name": "Егорова София Сергеевна",
+        "birth": "2010-02-28",
+        "parents": [
+            {"name": "Егоров Сергей Николаевич", "phone": "+79001234506", "role": "Папа",
+             "max_user_id": 1005, "confirmed": True},
+        ],
+    },
+    {
+        "name": "Журавлёва Мария Андреевна",
+        "birth": "2010-11-11",
+        "parents": [
+            {"name": "Журавлёва Ольга Викторовна", "phone": "+79001234507", "role": "Мама",
+             "max_user_id": 1006, "confirmed": True},
+        ],
+    },
+    {
+        "name": "Зарипов Ильназ Ленарович",
+        "birth": "2010-04-19",
+        "parents": [
+            {"name": "Зарипова Лейсан Рустемовна", "phone": "+79001234508", "role": "Мама"},
+        ],
+    },
 ]
 
 
@@ -167,37 +207,27 @@ def seed_demo_class(session: Session) -> int:
         school_name="МБОУ «Гимназия №7» г. Казань",
         teacher_name="Салимова Гульнара Рифкатовна",
         teacher_phone="+79001230000",
+        chat_id=-100200300,
     )
     session.add(klass)
     session.commit()
     session.refresh(klass)
-    first_student_id = None
-    for full_name, birth, phone, role in _DEMO_STUDENTS:
-        student = Student(class_id=klass.id, full_name=full_name, birth_date=date.fromisoformat(birth))
+    for item in _DEMO_STUDENTS:
+        student = Student(class_id=klass.id, full_name=item["name"], birth_date=date.fromisoformat(item["birth"]))
         session.add(student)
         session.commit()
         session.refresh(student)
-        if first_student_id is None:
-            first_student_id = student.id
-        session.add(
-            ParentContact(
-                student_id=student.id,
-                full_name=f"Родитель: {full_name.split()[0]}",
-                phone_number=phone,
-                role=role,
-                confirmed=True,
+        for parent in item["parents"]:
+            session.add(
+                ParentContact(
+                    student_id=student.id,
+                    full_name=parent["name"],
+                    phone_number=parent["phone"],
+                    role=parent["role"],
+                    max_user_id=parent.get("max_user_id"),
+                    confirmed=parent.get("confirmed", False),
+                )
             )
-        )
-    if first_student_id is not None:
-        session.add(
-            ParentContact(
-                student_id=first_student_id,
-                full_name="Родитель: Абдуллина (второй)",
-                phone_number="+79001234525",
-                role="Папа",
-                confirmed=True,
-            )
-        )
     session.commit()
     return klass.id
 
@@ -238,20 +268,22 @@ def seed_demo_excursion(session: Session) -> int:
     session.commit()
     session.refresh(excursion)
 
+    pattern = ["PAID", "WAIT", "REJECT", "PENDING", "PAID", "PENDING", "WAIT", "PAID"]
     students = session.exec(select(Student).where(Student.class_id == klass.id)).all()
     for idx, student in enumerate(students):
         parent = session.exec(
             select(ParentContact).where(ParentContact.student_id == student.id)
         ).first()
+        kind = pattern[idx % len(pattern)]
         status_consent = "PENDING"
         ticket = TicketStatus.NOT_REQUIRED
-        if idx % 3 == 0:
+        if kind == "PAID":
             status_consent = "APPROVED"
             ticket = TicketStatus.PAID if excursion.ticket_price > 0 else TicketStatus.NOT_REQUIRED
-        elif idx % 3 == 1:
+        elif kind == "WAIT":
             status_consent = "APPROVED"
             ticket = TicketStatus.WAITING_PAYMENT if excursion.ticket_price > 0 else TicketStatus.NOT_REQUIRED
-        elif idx % 7 == 2:
+        elif kind == "REJECT":
             status_consent = "REJECTED"
         part = ExcursionParticipant(
             excursion_id=excursion.id,

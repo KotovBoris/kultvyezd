@@ -118,9 +118,10 @@ async def test_CRIT_9_remind_delivers_to_linked() -> None:
         from app.models import ExcursionParticipant  # noqa: PLC0415
         for i, st in enumerate(students):
             s.add(ExcursionParticipant(excursion_id=exc.id, student_id=st.id, consent_status="PENDING"))
-            if i == 0:  # привяжем только первого
-                p = s.exec(select(ParentContact).where(ParentContact.student_id == st.id)).first()
-                p.max_user_id = 700700 + i
+            for j, p in enumerate(
+                s.exec(select(ParentContact).where(ParentContact.student_id == st.id)).all()
+            ):
+                p.max_user_id = 700700 if i == 0 and j == 0 else None
                 s.add(p)
         s.commit()
         fake = Fake()
