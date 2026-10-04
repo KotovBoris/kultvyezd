@@ -11,7 +11,9 @@ export default function WizardScreen({
   onCancel: () => void;
 }) {
   const [step, setStep] = useState(1);
-  const [classId, setClassId] = useState<number | null>(classes[0]?.id ?? null);
+  // Класс выбирается явно: автоподстановка первого класса из списка приводила к
+  // созданию мероприятия для чужого (сидового) класса — родитель не видел выезд.
+  const [classId, setClassId] = useState<number | null>(classes.length === 1 ? classes[0].id : null);
   const [events, setEvents] = useState<CultureEvent[]>([]);
   const [age, setAge] = useState("");
   const [pushkin, setPushkin] = useState(false);

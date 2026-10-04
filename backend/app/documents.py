@@ -15,7 +15,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from reportlab.lib import colors
 from sqlmodel import Session, select
 
-from .models import ConsentStatus, Excursion, ExcursionParticipant, ParentContact, Student
+from .models import ConsentStatus, Excursion, ExcursionParticipant, ParentContact, SchoolClass, Student
 
 
 def _collect(session: Session, excursion: Excursion) -> list[dict]:
@@ -52,6 +52,11 @@ def _date_str(excursion: Excursion) -> str:
     return excursion.event_date.strftime("%d.%m.%Y") if excursion.event_date else "____"
 
 
+def _class_title(session: Session, excursion: Excursion) -> str:
+    klass = session.get(SchoolClass, excursion.class_id)
+    return klass.title if klass else "____"
+
+
 def build_order_docx(session: Session, excursion: Excursion) -> bytes:
     rows = _collect(session, excursion)
     doc = Document()
@@ -74,7 +79,7 @@ def build_order_docx(session: Session, excursion: Excursion) -> bytes:
 
     doc.add_paragraph(
         f"1. Организовать выездное экскурсионное мероприятие «{excursion.title}» "
-        f"для обучающихся {excursion.class_id} (далее — группа)."
+        f"для обучающихся {_class_title(session, excursion)} класса (далее — группа)."
     )
     doc.add_paragraph(f"2. Место проведения: {excursion.location_name}, {excursion.address}.")
     doc.add_paragraph(f"3. Дата проведения: {_date_str(excursion)}.")
@@ -170,7 +175,9 @@ def build_order_pdf(session: Session, excursion: Excursion) -> bytes:
     story.append(Paragraph(f"Дата издания: {datetime.now().strftime('%d.%m.%Y')} г.", n))
     story.append(Paragraph(f"Основание: {excursion.order_basis}.", n))
     story.append(Spacer(1, 6))
-    story.append(Paragraph(f"1. Организовать выезд «{excursion.title}».", n))
+    story.append(Paragraph(
+        f"1. Организовать выезд «{excursion.title}» для обучающихся "
+        f"{_class_title(session, excursion)} класса.", n))
     story.append(Paragraph(f"2. Место проведения: {excursion.location_name}, {excursion.address}.", n))
     story.append(Paragraph(f"3. Дата проведения: {_date_str(excursion)}.", n))
     story.append(

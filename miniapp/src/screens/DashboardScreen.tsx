@@ -165,15 +165,9 @@ export default function DashboardScreen({
           <button className="kv-btn" disabled={busy} onClick={generateOrder}>
             Сформировать приказ (DOCX)
           </button>
-          <button
-            className="kv-btn ghost"
-            onClick={() => downloadFile(pdfUrl, `Приказ_выезд_${excursionId}.pdf`)}
-          >
-            Скачать PDF
-          </button>
           {exc.ticket_sale_url && (
             <button className="kv-btn ghost" onClick={() => openLink(exc.ticket_sale_url)}>
-              Билетный шлюз музея
+              Перейти на сайт
             </button>
           )}
         </div>

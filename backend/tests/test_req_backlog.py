@@ -93,12 +93,16 @@ def test_CLS_4_share_grants_edit(client: TestClient) -> None:
     assert r.status_code == 200 and r.json()["title"] == "7Г"
 
 
-def test_CLS_5_list_scoped_by_user(client: TestClient) -> None:
+def test_CLS_5_list_shared_but_edit_scoped(client: TestClient) -> None:
+    # Учительский интерфейс общий: список классов виден всем пользователям,
+    # но редактировать чужой класс нельзя (can_edit только у владельца/пошаренных).
     klass = _new_class(client)
     mine = client.get("/api/v1/classes", params={"user_id": TEACHER_A}).json()
-    assert any(c["id"] == klass["id"] for c in mine)
+    row_mine = next(c for c in mine if c["id"] == klass["id"])
+    assert row_mine["can_edit"] is True
     other = client.get("/api/v1/classes", params={"user_id": 999888}).json()
-    assert not any(c["id"] == klass["id"] for c in other)
+    row_other = next(c for c in other if c["id"] == klass["id"])
+    assert row_other["can_edit"] is False
 
 
 def test_CLS_6_add_student_joins_existing_excursions(client: TestClient) -> None:

@@ -345,7 +345,12 @@ def _parse_rows(content: bytes, filename: str) -> list[dict]:
             rows.append(dict(zip(headers, [("" if v is None else str(v).strip()) for v in r])))
     else:
         text = content.decode("utf-8-sig", errors="replace")
-        reader = csv.DictReader(io.StringIO(text))
+        # Русский Excel сохраняет CSV с «;» — определяем разделитель по первой строке.
+        try:
+            dialect = csv.Sniffer().sniff(text[:2048], delimiters=",;\t")
+        except csv.Error:
+            dialect = csv.excel
+        reader = csv.DictReader(io.StringIO(text), dialect=dialect)
         for r in reader:
             rows.append({(k or "").strip().lower(): (v or "").strip() for k, v in r.items()})
     return rows
@@ -467,19 +472,9 @@ def create_class(payload: ClassCreate, session: Session = Depends(get_session)) 
 @app.get("/api/v1/classes", response_model=list[ClassOut], tags=["classes"])
 def list_classes(user_id: int | None = Query(default=None),
                  session: Session = Depends(get_session)) -> list[ClassOut]:
+    # Интерфейс учителя общий: классы и мероприятия видят все пользователи.
+    # Разграничение остаётся только на редактирование (can_edit / 403 по владельцу и шарингу).
     classes = session.exec(select(SchoolClass)).all()
-    if user_id is not None:
-        visible = []
-        for k in classes:
-            if k.owner_user_id is None or k.owner_user_id == user_id:
-                visible.append(k)
-                continue
-            access = session.exec(
-                select(ClassAccess).where(ClassAccess.class_id == k.id, ClassAccess.user_id == user_id)
-            ).first()
-            if access:
-                visible.append(k)
-        classes = visible
     return [_class_out(session, k, user_id) for k in classes]
 
 
