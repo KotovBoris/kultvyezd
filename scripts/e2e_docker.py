@@ -74,7 +74,8 @@ def main() -> int:
     check(s == 200 and len(events) >= 5, f"Каталог: события по «Пушкинской карте» ({len(events)})")
 
     s, classes = call("GET", "/api/v1/classes")
-    check(s == 200 and classes and len(classes[0]["students"]) >= 20,
+    # Компактный сид (550fa36): в демо-классе 8 учеников.
+    check(s == 200 and classes and len(classes[0]["students"]) >= 8,
           f"Демо-класс засеян ({len(classes[0]['students'])} учеников)")
     klass = classes[0]
     student_id = klass["students"][0]["id"]
