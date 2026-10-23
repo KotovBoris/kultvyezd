@@ -90,14 +90,17 @@ def main() -> int:
     s, dash = call("GET", f"/api/v1/excursions/{exc_id}/dashboard")
     check(s == 200 and "summary" in dash, "Дашборд «Светофор» отдаётся")
 
-    s, consent = call("POST", f"/api/v1/excursions/{exc_id}/consent", {
-        "student_id": student_id, "status": "APPROVED",
-        "parent_name": "Мама", "parent_phone": "+79001234501",
+    # Без MAX-пользователя согласие не принимается (на стенде с ботом — 401), поэтому
+    # отмечаем бумажный бланк от имени учителя: у сид-класса нет владельца.
+    teacher = "?user_id=1"
+    s, consent = call("POST", f"/api/v1/excursions/{exc_id}/consent{teacher}", {
+        "student_id": student_id, "status": "APPROVED", "source": "paper",
+        "parent_name": "Мама (бумажный бланк)", "parent_phone": "+79001234501",
     })
-    check(s == 200 and consent["consent_status"] == "APPROVED", "Согласие родителя зафиксировано")
+    check(s == 200 and consent["consent_status"] == "APPROVED", "Согласие по бумажному бланку зафиксировано")
 
-    s, repeat = call("POST", f"/api/v1/excursions/{exc_id}/consent", {
-        "student_id": student_id, "status": "REJECTED",
+    s, repeat = call("POST", f"/api/v1/excursions/{exc_id}/consent{teacher}", {
+        "student_id": student_id, "status": "REJECTED", "source": "paper",
     })
     check(repeat.get("changed") is False and repeat["consent_status"] == "APPROVED",
           "Идемпотентность — повтор не перезаписывает согласие")
