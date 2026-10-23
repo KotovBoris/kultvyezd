@@ -87,6 +87,9 @@ class ClassOut(BaseModel):
     chat_id: int | None = None
     owner_user_id: int | None = None
     can_edit: bool = True
+    is_demo: bool = False
+    invite_code: str | None = None
+    parents_connected: int = 0
     students: list[StudentOut] = Field(default_factory=list)
 
 
@@ -133,6 +136,8 @@ class ExcursionCreate(BaseModel):
     ticket_sale_url: str | None = None
     is_pushkin_card: bool | None = None
     order_basis: str | None = None
+    meeting_point: str | None = None
+    notify_parents: bool = True
 
 
 class ParticipantRow(BaseModel):
@@ -143,11 +148,24 @@ class ParticipantRow(BaseModel):
     ticket_status: TicketStatus
     bot_activated: bool = False
     parent_status: Literal["APPROVED", "REJECTED", "NO_ANSWER", "BOT_INACTIVE"] = "NO_ANSWER"
+    parent_name: str | None = None
+    parent_role: str | None = None
+    parent_phone: str | None = None
     signed_by_name: str | None = None
     signed_by_phone: str | None = None
+    signed_by_max_user_id: int | None = None
     signed_at: datetime | None = None
     rejection_reason: str | None = None
     ticket_number: str | None = None
+
+
+class ExcursionStats(BaseModel):
+    total: int
+    answered: int
+    going: int
+    not_going: int
+    waiting: int
+    waiting_ticket: int
 
 
 class ExcursionOut(BaseModel):
@@ -166,6 +184,10 @@ class ExcursionOut(BaseModel):
     status: ExcursionStatus
     school_name: str
     responsible_teacher: str
+    meeting_point: str = ""
+    class_title: str = ""
+    is_demo: bool = False
+    stats: ExcursionStats | None = None
 
 
 class DashboardOut(BaseModel):
@@ -194,6 +216,11 @@ class ConsentResponse(BaseModel):
     message: str
     signed_by_name: str | None = None
     signed_at: datetime | None = None
+
+
+class ConsentResetRequest(BaseModel):
+    student_id: int
+    as_teacher: bool = False
 
 
 class TicketConfirmRequest(BaseModel):
@@ -249,3 +276,65 @@ class ParentClaimRequest(BaseModel):
 class NotificationsRequest(BaseModel):
     max_user_id: int
     enabled: bool
+
+
+class MeOut(BaseModel):
+    user_id: int | None
+    name: str = ""
+    auth: Literal["max", "demo", "anonymous"] = "anonymous"
+    role: Literal["teacher", "parent"] | None = None
+    is_teacher: bool = False
+    is_parent: bool = False
+    has_demo: bool = False
+    classes_count: int = 0
+    children_count: int = 0
+    bot_username: str = ""
+
+
+class RoleRequest(BaseModel):
+    role: Literal["teacher", "parent"]
+
+
+class DemoOut(BaseModel):
+    created: bool
+    class_id: int
+    class_title: str
+    child_student_id: int | None = None
+    child_name: str | None = None
+    excursion_ids: list[int] = Field(default_factory=list)
+    invited: int = 0
+
+
+class InviteOut(BaseModel):
+    class_id: int
+    code: str
+    app_link: str
+    bot_link: str
+
+
+class JoinRequest(BaseModel):
+    code: str | None = None
+    phone: str = ""
+    # Подпись номера из WebApp.requestContact(): {phone, authDate, hash}
+    auth_date: str | None = None
+    hash: str | None = None
+
+
+class JoinInfoOut(BaseModel):
+    code: str
+    class_title: str
+    school_name: str
+    teacher_name: str
+    students_count: int
+
+
+class JoinOut(BaseModel):
+    status: Literal["linked", "not_found", "no_phone", "bad_code"]
+    message: str
+    children: list[str] = Field(default_factory=list)
+    class_title: str | None = None
+
+
+class SendDocumentsOut(BaseModel):
+    delivered: bool
+    message: str

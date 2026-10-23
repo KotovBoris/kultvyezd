@@ -68,8 +68,8 @@ def test_DEMO_1_reset(client: TestClient) -> None:
     r = client.post("/api/v1/admin/reset-demo")
     assert r.status_code == 200
     assert r.json()["reset_participants"] >= 1
-    exc = client.get("/api/v1/excursions").json()[0]
-    dash = client.get(f"/api/v1/excursions/{exc['id']}/dashboard").json()
+    exc_id = r.json()["excursion_id"]
+    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()
     assert all(p["consent_status"] == "PENDING" for p in dash["participants"])
 
 

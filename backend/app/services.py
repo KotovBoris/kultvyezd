@@ -12,6 +12,7 @@ from .models import (
     ExcursionStatus,
     ParentContact,
     ReminderLog,
+    SchoolClass,
     Student,
     TicketStatus,
     TrafficLight,
@@ -63,6 +64,47 @@ def student_parents(session: Session, student_id: int) -> list[ParentContact]:
     return list(session.exec(select(ParentContact).where(ParentContact.student_id == student_id)).all())
 
 
+def normalize_phone(raw: str | None) -> str:
+    """Телефон к виду 7XXXXXXXXXX: так сверяем номер из MAX со списком класса."""
+    digits = "".join(ch for ch in (raw or "") if ch.isdigit())
+    if len(digits) == 11 and digits[0] == "8":
+        digits = "7" + digits[1:]
+    if len(digits) == 10:
+        digits = "7" + digits
+    return digits
+
+
+def excursion_summary(session: Session, excursion: Excursion) -> dict:
+    parts = session.exec(
+        select(ExcursionParticipant).where(ExcursionParticipant.excursion_id == excursion.id)
+    ).all()
+    counts = {"GREEN": 0, "YELLOW": 0, "GREY": 0, "RED": 0}
+    for p in parts:
+        counts[compute_traffic_light(p).value] += 1
+    total = len(parts)
+    answered = total - counts["GREY"]
+    return {
+        "total": total,
+        "answered": answered,
+        "going": counts["GREEN"] + counts["YELLOW"],
+        "not_going": counts["RED"],
+        "waiting": counts["GREY"],
+        "waiting_ticket": counts["YELLOW"],
+        "summary": counts,
+    }
+
+
+def invitation_targets(session: Session, excursion: Excursion) -> list[tuple[Student, ParentContact]]:
+    """Живые родители класса с привязанным MAX: им бот шлёт приглашение на выезд."""
+    targets: list[tuple[Student, ParentContact]] = []
+    students = session.exec(select(Student).where(Student.class_id == excursion.class_id)).all()
+    for student in students:
+        for parent in student_parents(session, student.id):
+            if parent.max_user_id and parent.notifications_enabled and not parent.is_virtual:
+                targets.append((student, parent))
+    return targets
+
+
 def apply_consent(
     session: Session,
     excursion: Excursion,
@@ -73,6 +115,7 @@ def apply_consent(
     parent_name: str = "",
     reason: str | None = None,
     source: str = "api",
+    max_user_id: int | None = None,
 ) -> tuple[ExcursionParticipant, bool, str]:
     participant = get_participant(session, excursion.id, student_id)
     if participant is None:
@@ -98,6 +141,8 @@ def apply_consent(
 
     participant.signed_by_phone = parent_phone or None
     participant.signed_by_name = parent_name or None
+    participant.signed_by_max_user_id = max_user_id
+    participant.signed_source = source
     participant.signed_at = datetime.utcnow()
 
     session.add(participant)
@@ -115,6 +160,48 @@ def apply_consent(
     session.commit()
     session.refresh(participant)
     return participant, True, msg
+
+
+def can_change_answer(participant: ExcursionParticipant, excursion: Excursion, user_id: int | None,
+                      *, as_teacher: bool = False, now: datetime | None = None) -> bool:
+    """Изменить ответ может тот, кто его дал (до дедлайна), или учитель — для бумажных отметок."""
+    if participant.consent_status == ConsentStatus.PENDING:
+        return False
+    if as_teacher:
+        return True
+    now = now or datetime.utcnow()
+    if excursion.deadline and now > excursion.deadline:
+        return False
+    return bool(user_id) and participant.signed_by_max_user_id == user_id
+
+
+def reset_consent(
+    session: Session, excursion: Excursion, *, student_id: int, user_id: int | None,
+    as_teacher: bool = False, source: str = "api",
+) -> tuple[ExcursionParticipant, bool, str]:
+    participant = get_participant(session, excursion.id, student_id)
+    if participant is None:
+        raise ValueError("Участник не найден в этом выезде")
+    if not can_change_answer(participant, excursion, user_id, as_teacher=as_teacher):
+        return participant, False, "Ответ уже нельзя изменить. Напишите классному руководителю."
+    participant.consent_status = ConsentStatus.PENDING
+    if participant.ticket_status != TicketStatus.PAID:
+        participant.ticket_status = (
+            TicketStatus.WAITING_PAYMENT if (excursion.ticket_price or 0) > 0 else TicketStatus.NOT_REQUIRED
+        )
+    participant.rejection_reason = None
+    participant.signed_at = None
+    participant.signed_by_name = None
+    participant.signed_by_phone = None
+    participant.signed_by_max_user_id = None
+    participant.signed_source = None
+    session.add(participant)
+    session.add(ConsentAudit(excursion_id=excursion.id, student_id=student_id, action="RESET", source=source))
+    excursion.teacher_notified_complete = False
+    session.add(excursion)
+    session.commit()
+    session.refresh(participant)
+    return participant, True, "Ответ сброшен — выберите заново."
 
 
 def confirm_ticket(
@@ -152,7 +239,9 @@ def dashboard(session: Session, excursion: Excursion) -> dict:
     for p in parts:
         student = session.get(Student, p.student_id)
         parents = student_parents(session, p.student_id)
-        activated = any(pc.max_user_id for pc in parents)
+        # Виртуальные родители демо-класса считаются «подключёнными»: они отвечают сами.
+        activated = any(pc.max_user_id or pc.is_virtual for pc in parents)
+        main_parent = next((pc for pc in parents if pc.max_user_id), parents[0] if parents else None)
         tl = compute_traffic_light(p)
         counts[tl.value] += 1
         rows.append(
@@ -164,13 +253,18 @@ def dashboard(session: Session, excursion: Excursion) -> dict:
                 "ticket_status": p.ticket_status,
                 "bot_activated": activated,
                 "parent_status": parent_status(p, activated),
+                "parent_name": main_parent.full_name if main_parent else None,
+                "parent_role": main_parent.role if main_parent else None,
+                "parent_phone": main_parent.phone_number if main_parent else None,
                 "signed_by_name": p.signed_by_name,
                 "signed_by_phone": p.signed_by_phone,
+                "signed_by_max_user_id": p.signed_by_max_user_id,
                 "signed_at": p.signed_at,
                 "rejection_reason": p.rejection_reason,
                 "ticket_number": p.ticket_number,
             }
         )
+    rows.sort(key=lambda r: r["full_name"])
     total = len(parts) or 1
     ready = counts["GREEN"] + counts["RED"]
     return {
@@ -313,6 +407,7 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
         excursions = session.exec(
             select(Excursion).where(Excursion.class_id == student.class_id)
         ).all()
+        klass = session.get(SchoolClass, student.class_id)
         items = []
         for exc in excursions:
             p = get_participant(session, exc.id, student.id)
@@ -323,6 +418,9 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
                     "excursion_id": exc.id,
                     "title": exc.title,
                     "location_name": exc.location_name,
+                    "address": exc.address,
+                    "meeting_point": exc.meeting_point,
+                    "responsible_teacher": exc.responsible_teacher,
                     "event_date": exc.event_date,
                     "gathering_time": exc.gathering_time.strftime("%H:%M") if exc.gathering_time else None,
                     "return_time": exc.return_time.strftime("%H:%M") if exc.return_time else None,
@@ -339,10 +437,15 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
                     "signed_at": p.signed_at,
                 }
             )
+        items.sort(key=lambda i: (i["consent_status"] != "PENDING", str(i["event_date"] or "")))
         result.append(
             {
                 "student_id": student.id,
                 "student_name": student.full_name,
+                "class_title": klass.title if klass else "",
+                "school_name": klass.school_name if klass else "",
+                "teacher_name": klass.teacher_name if klass else "",
+                "is_demo": bool(klass and klass.is_demo),
                 "parent_name": parent.full_name,
                 "parent_role": parent.role,
                 "confirmed": parent.confirmed,

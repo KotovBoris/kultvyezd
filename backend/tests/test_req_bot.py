@@ -100,7 +100,7 @@ async def test_BOT_3_help_command() -> None:
 async def test_BOT_4_trips_without_binding() -> None:
     fake = FakeClient()
     await BotService(client=fake).handle_update(_message("/trips"))
-    assert fake.sent and "не привязаны" in fake.sent[-1]["text"].lower()
+    assert fake.sent and "не подключены" in fake.sent[-1]["text"].lower()
 
 
 @pytest.mark.asyncio
@@ -144,7 +144,14 @@ async def test_BOT_8_callback_consent_rejected() -> None:
     await BotService(client=fake).handle_update(_callback(f"consent:{exc_id}:{sid}:REJECTED"))
     with Session(engine) as s:
         p = _participant(s, exc_id, sid)
+    # Сначала бот уточняет причину отказа — статус ещё не меняется.
+    assert p.consent_status.value == "PENDING"
+    assert "почему" in fake.answers[-1]["text"].lower()
+    await BotService(client=fake).handle_update(_callback(f"reason:{exc_id}:{sid}:ill"))
+    with Session(engine) as s:
+        p = _participant(s, exc_id, sid)
     assert p.consent_status.value == "REJECTED"
+    assert p.rejection_reason == "Болезнь"
 
 
 @pytest.mark.asyncio
