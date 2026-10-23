@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import ssl
 from typing import Any
@@ -50,7 +51,8 @@ class MaxClient:
 
     async def send_message(self, *, user_id: int | None = None, chat_id: int | None = None,
                            text: str = "", attachments: list[dict] | None = None,
-                           fmt: str | None = None, notify: bool = True) -> dict[str, Any] | None:
+                           fmt: str | None = None, notify: bool = True,
+                           wait_attachments: bool = False) -> dict[str, Any] | None:
         params: dict[str, Any] = {}
         if user_id is not None:
             params["user_id"] = user_id
@@ -61,7 +63,8 @@ class MaxClient:
             body["attachments"] = attachments
         if fmt:
             body["format"] = fmt
-        return await self._request("POST", "/messages", params=params, json=body)
+        return await self._request("POST", "/messages", params=params, json=body,
+                                   retry_not_ready=5 if wait_attachments else 0)
 
     async def upload_file(self, content: bytes, filename: str, upload_type: str = "file") -> str | None:
         """Загружает файл в MAX и возвращает его attachment-token.
@@ -109,7 +112,7 @@ class MaxClient:
         """Отправляет ранее загруженный файл сообщением (вложение типа ``file``)."""
         attachment = {"type": "file", "payload": {"token": token, "filename": filename}}
         return await self.send_message(
-            chat_id=chat_id, user_id=user_id, text=caption, attachments=[attachment]
+            chat_id=chat_id, user_id=user_id, text=caption, attachments=[attachment], wait_attachments=True
         )
 
     async def set_commands(self, commands: list[dict[str, str]]) -> dict[str, Any] | None:
@@ -131,7 +134,7 @@ class MaxClient:
         return await self._request("POST", "/answers", params={"callback_id": callback_id}, json=body)
 
     async def _request(self, method: str, path: str, *, params: dict | None = None,
-                       json: dict | None = None) -> dict[str, Any] | None:
+                       json: dict | None = None, retry_not_ready: int = 0) -> dict[str, Any] | None:
         if not self.enabled:
             log.warning("MAX client disabled (нет токена): пропущен %s %s", method, path)
             return None
@@ -139,6 +142,12 @@ class MaxClient:
         try:
             async with httpx.AsyncClient(timeout=self.timeout, verify=self.verify) as client:
                 resp = await client.request(method, url, params=params, json=json, headers=self._headers())
+                for attempt in range(retry_not_ready):
+                    # Только что загруженный файл MAX ещё обрабатывает: просит повторить чуть позже.
+                    if resp.status_code != 400 or "attachment.not.ready" not in resp.text:
+                        break
+                    await asyncio.sleep(1 + attempt)
+                    resp = await client.request(method, url, params=params, json=json, headers=self._headers())
                 if resp.status_code >= 400:
                     log.error("MAX %s %s -> %s: %s", method, path, resp.status_code, resp.text[:300])
                     return None

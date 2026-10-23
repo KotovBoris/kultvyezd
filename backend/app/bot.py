@@ -738,8 +738,9 @@ class BotService:
         ]
         stats = services.excursion_summary(session, excursion)
         delivered = False
-        for idx, (filename, content) in enumerate(files):
-            token = await self.client.upload_file(content, filename)
+        # Сначала загружаем оба файла: пока грузится второй, MAX успевает обработать первый.
+        uploaded = [(filename, await self.client.upload_file(content, filename)) for filename, content in files]
+        for idx, (filename, token) in enumerate(uploaded):
             if not token:
                 continue
             caption = ""
