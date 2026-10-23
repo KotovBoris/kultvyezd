@@ -353,3 +353,25 @@ def test_FIN_20_consent_only_by_parent_or_teacher_paper(client: TestClient) -> N
     r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": owner},
                     json={"student_id": own_child, "status": "APPROVED", "source": "miniapp"})
     assert r.status_code == 200
+
+
+def test_FIN_21_live_demo_link_stable_and_roomy(client: TestClient) -> None:
+    owner = 7_700_800
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    code = client.post(f"/api/v1/classes/{info['class_id']}/invite", params={"user_id": owner}).json()["code"]
+    # «Начать демо заново» не меняет ссылку — QR на слайде остаётся рабочим
+    info2 = client.post("/api/v1/demo/reset", params={"user_id": owner}).json()
+    assert client.post(f"/api/v1/classes/{info2['class_id']}/invite",
+                       params={"user_id": owner}).json()["code"] == code
+    # Зал больше свободных учеников: каждый, кто отсканировал, становится родителем
+    joined = set()
+    for i in range(16):
+        r = client.post("/api/v1/parent/join", params={"user_id": owner + 100 + i},
+                        json={"code": code, "phone": ""}).json()
+        assert r["status"] == "linked", r
+        joined.add(r["children"][0])
+    assert len(joined) == 16
+    exc_id = info2["excursion_ids"][0]
+    ctx = client.get("/api/v1/parent/context", params={"max_user_id": owner + 115}).json()
+    trip = next(t for t in ctx["children"][0]["excursions"] if t["excursion_id"] == exc_id)
+    assert trip["consent_status"] == "PENDING"

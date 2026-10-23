@@ -7,6 +7,9 @@
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import random
 import secrets
 from datetime import date, datetime, timedelta
@@ -14,6 +17,7 @@ from datetime import date, datetime, timedelta
 from sqlmodel import Session, select
 
 from . import services
+from .config import get_settings
 from .models import (
     AccessRole,
     ClassAccess,
@@ -65,6 +69,26 @@ def new_invite_code() -> str:
     return secrets.token_urlsafe(6).replace("-", "").replace("_", "")[:8]
 
 
+def sandbox_invite_code(user_id: int) -> str:
+    """Постоянная ссылка демо-класса пользователя: не меняется после «Начать демо заново».
+
+    Нужна для QR на слайде живого демо — его печатают заранее.
+    """
+    key = (get_settings().MAX_BOT_TOKEN or "classgo-demo").encode()
+    digest = hmac.new(key, f"demo:{user_id}".encode(), hashlib.sha256).digest()
+    return "d" + base64.b32encode(digest).decode().lower()[:9]
+
+
+# Если на защите сканирует больше людей, чем свободных учеников, — добавляем новых.
+_EXTRA_KIDS: list[str] = [
+    "Ахметова Камила Ришатовна", "Белов Егор Андреевич", "Галиев Тагир Ильдусович",
+    "Давыдова Полина Алексеевна", "Исмагилова Амина Рустамовна", "Киселёв Артур Олегович",
+    "Мухаметзянов Айдар Раисович", "Никитина Ева Дмитриевна", "Сабирова Аделина Маратовна",
+    "Тихонов Лев Максимович", "Фазлыев Карим Азатович", "Хабибуллина Эмилия Ринатовна",
+    "Шарипов Роберт Тимурович", "Юсупова Ясмина Ильнуровна",
+]
+
+
 def sandbox_class(session: Session, user_id: int) -> SchoolClass | None:
     return session.exec(
         select(SchoolClass).where(SchoolClass.is_demo == True, SchoolClass.owner_user_id == user_id)  # noqa: E712
@@ -111,7 +135,7 @@ def create_sandbox(session: Session, user_id: int, user_name: str = "") -> dict:
     klass = SchoolClass(
         grade="7", letter="Б", school_id=school.id, school_name=school.name, school_number="",
         teacher_name=teacher, owner_user_id=user_id, teacher_max_id=user_id,
-        invite_code=new_invite_code(), is_demo=True,
+        invite_code=sandbox_invite_code(user_id), is_demo=True,
     )
     session.add(klass)
     session.commit()
@@ -266,7 +290,10 @@ def adopt_virtual_child(session: Session, klass: SchoolClass, user_id: int, name
         if parents and all(p.is_virtual for p in parents):
             candidates.append((-pending_count(st.id), st.full_name, st, parents[0]))
     if not candidates:
-        return None
+        extra = _add_extra_kid(session, klass, {st.full_name for st in students})
+        if not extra:
+            return None
+        candidates.append((0, extra[0].full_name, extra[0], extra[1]))
     candidates.sort(key=lambda c: (c[0], c[1]))
     _, _, student, parent = candidates[0]
     parent.max_user_id = user_id
@@ -357,3 +384,24 @@ def process_due_answers(session: Session, now: datetime | None = None) -> set[in
         touched.add(excursion.id)
     session.commit()
     return touched
+
+
+def _add_extra_kid(session: Session, klass: SchoolClass, taken: set[str]) -> tuple[Student, ParentContact] | None:
+    name = next((n for n in _EXTRA_KIDS if n not in taken), None)
+    if not name:
+        return None
+    student = Student(class_id=klass.id, full_name=name, birth_date=date(2013, 6, 1))
+    session.add(student)
+    session.commit()
+    session.refresh(student)
+    parent = ParentContact(student_id=student.id, full_name="Родитель (демо)", phone_number="",
+                           role="Родитель", is_virtual=True, confirmed=True)
+    session.add(parent)
+    for exc in session.exec(select(Excursion).where(Excursion.class_id == klass.id)).all():
+        session.add(ExcursionParticipant(
+            excursion_id=exc.id, student_id=student.id, consent_status=ConsentStatus.PENDING,
+            ticket_status=TicketStatus.WAITING_PAYMENT if exc.ticket_price > 0 else TicketStatus.NOT_REQUIRED,
+        ))
+    session.commit()
+    session.refresh(parent)
+    return student, parent
