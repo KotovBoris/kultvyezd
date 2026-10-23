@@ -407,3 +407,15 @@ async def test_FIN_22_bot_asks_terms_before_first_answer(client: TestClient) -> 
     await bot.handle_update(press(f"terms:2:{exc_id}:{sid}:APPROVED", "c"))
     assert status() == "APPROVED" and "идёт на выезд" in fake.answers[-1]["text"]
     assert client.get("/api/v1/me", params={"user_id": owner}).json()["terms_accepted"] is True
+
+
+@pytest.mark.asyncio
+async def test_FIN_23_bot_paper_choice_answers(client: TestClient) -> None:
+    owner = 7_701_000
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    exc_id, sid = info["excursion_ids"][0], info["child_student_id"]
+    fake = FakeClient()
+    await BotService(client=fake).handle_update({"update_type": "message_callback", "callback": {
+        "callback_id": "p", "payload": f"paper:{exc_id}:{sid}", "user": {"user_id": owner}},
+        "message": {"recipient": {"chat_id": 1}}})
+    assert "на бумаге" in fake.answers[-1]["text"]

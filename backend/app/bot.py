@@ -438,9 +438,10 @@ class BotService:
             with Session(engine) as session:
                 excursion = session.get(Excursion, int(exc_id_s))
                 klass = session.get(SchoolClass, excursion.class_id) if excursion else None
+                # Имя читаем до commit в set_notifications: после закрытия сессии объект уже недоступен.
+                teacher = (klass.teacher_name if klass else "") or "классного руководителя"
                 if user_id:
                     services.set_notifications(session, user_id, False)  # напоминания в MAX больше не шлём
-            teacher = (klass.teacher_name if klass else "") or "классного руководителя"
             await self.client.answer_callback(
                 callback_id,
                 text=f"Хорошо, ответите на бумаге. Бланк — у классного руководителя ({teacher}).\n"
