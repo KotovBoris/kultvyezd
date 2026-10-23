@@ -75,7 +75,10 @@ export default function TeacherHome() {
         title={name ? `Здравствуйте, ${name}` : "Мои выезды"}
         subtitle={
           classes && classes.length
-            ? `${classes.map((c) => c.title).join(", ")} · ${trips?.length ?? 0} ${plural(trips?.length ?? 0, "выезд", "выезда", "выездов")}`
+            ? `${classes.map((c) => c.title).join(", ")} · ` +
+              (upcoming.length
+                ? `${upcoming.length} ${plural(upcoming.length, "выезд", "выезда", "выездов")} впереди`
+                : "запланированных выездов нет")
             : undefined
         }
       />

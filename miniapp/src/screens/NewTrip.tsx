@@ -332,7 +332,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
               <span className="cg-muted">{event!.venue}</span>
             </Card>
           )}
-          <Section title="Когда и как">
+          <Section>
             <div className="cg-form">
               <Field label="Дата выезда">
                 <input className="cg-input" type="date" value={date} min={todayIso} onChange={(e) => setDate(e.target.value)} />

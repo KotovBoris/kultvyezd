@@ -98,7 +98,8 @@ export default function JoinScreen({ code }: { code: string }) {
             </p>
             <p className="cg-muted">
               В списке класса {info.students_count} {plural(info.students_count, "ученик", "ученика", "учеников")}.
-              Нажмите кнопку — MAX передаст ваш номер с подписью платформы, и мы найдём вашего ребёнка.
+              Нажмите кнопку и разрешите MAX передать ваш номер телефона — по нему мы найдём вашего ребёнка в
+              списке.
             </p>
           </>
         )}

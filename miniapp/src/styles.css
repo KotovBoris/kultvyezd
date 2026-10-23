@@ -153,7 +153,8 @@ body.cg-noscroll {
   max-width: 560px;
   transform: translateX(-50%);
   padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom));
-  background: linear-gradient(to top, var(--page) 70%, transparent);
+  background: var(--page);
+  box-shadow: 0 -1px 0 var(--line);
 }
 
 .cg-bottom-pair {

@@ -103,10 +103,10 @@ export default function ClassScreen({ id }: { id: number }) {
         </div>
       </Card>
 
-      {notConnected > 0 && !klass.is_demo && (
+      {notConnected > 0 && notConnected < klass.students.length && !klass.is_demo && (
         <Notice tone="warn" icon="info">
           {notConnected} {plural(notConnected, "семья ещё не подключена", "семьи ещё не подключены", "семей ещё не подключены")}.
-          Им можно позвонить или отметить бумажное согласие вручную на странице выезда.
+          Напомните им о ссылке в чате класса. Кто не пользуется MAX, отвечает на бумажном бланке — он есть в пакете документов выезда.
         </Notice>
       )}
 

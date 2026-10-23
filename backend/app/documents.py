@@ -55,7 +55,7 @@ METHOD = {
     "person": "Устно — нужно письменное подтверждение",
 }
 WRITTEN = {"bot", "demo", "miniapp", "api", "paper", None}
-AUDIT_LABEL = {"APPROVE": "Отпускаю", "REJECT": "Не сможет", "RESET": "ответ изменён"}
+AUDIT_LABEL = {"APPROVE": "Согласие", "REJECT": "Отказ", "RESET": "ответ изменён"}
 
 MEMO = [
     "Слушай руководителя группы и сопровождающих, выполняй их указания.",
@@ -466,8 +466,8 @@ def build_order_pdf(session: Session, excursion: Excursion) -> bytes:
         Spacer(1, 3 * mm),
     ]
     data = [["№", "Обучающийся", "Ответ", "Подписант", "Способ", "Время ответа", "История"]]
-    rows = ([(r, "Отпускаю") for r in pack.going + pack.oral]
-            + [(r, f"Не сможет: {r.reason or 'без причины'}") for r in pack.not_going])
+    rows = ([(r, "Согласие") for r in pack.going + pack.oral]
+            + [(r, f"Отказ: {r.reason or 'без причины'}") for r in pack.not_going])
     for i, (r, verdict) in enumerate(rows, 1):
         signer = f"{r.signer or '—'}<br/>MAX ID {r.max_id}<br/>тел. {r.phone_masked}" if r.max_id != "—" \
             else f"{r.signer or '—'}"
@@ -519,23 +519,23 @@ def build_order_pdf(session: Session, excursion: Excursion) -> bytes:
     if pack.waiting:
         story.append(PageBreak())
         story.append(Paragraph("Бланки согласия — для тех, кто ещё не ответил или отвечает на бумаге", s["h2"]))
-        story.append(Paragraph("После возврата бланка отметьте ответ в ClassGo: «Отметить вручную → бумажное "
-                               "согласие». Оригинал храните вместе с приказом.", s["small"]))
+        story.append(Paragraph("После возврата бланка откройте ученика в ClassGo и нажмите «Бланк: отпускают» "
+                               "или «Бланк: не пойдёт». Оригинал храните вместе с приказом.", s["small"]))
         for r in pack.waiting:
             story.append(KeepTogether([
                 Spacer(1, 6 * mm),
                 Paragraph("<b>Согласие на участие обучающегося в экскурсии</b>", s["item"]),
-                Paragraph(f"Я, ______________________________________ (ФИО), ☐ мать ☐ отец ☐ опекун (попечитель) "
+                Paragraph(f"Я, ______________________________________ (ФИО), □ мать □ отец □ опекун (попечитель) "
                           f"обучающегося {pack.class_title} класса <b>{r.name}</b>, даю согласие на участие в "
                           f"экскурсии {pack.title} {pack.date_short} с {pack.gathering} до {pack.returning} "
                           f"(сбор {pack.meeting_point}; передвижение: {pack.transport}; руководитель — "
                           f"{pack.teacher or '________________'}).", s["item"]),
                 Paragraph("Билет семья при желании покупает сама; школа деньги не собирает. После возвращения "
-                          "в школу ребёнок ☐ идёт домой самостоятельно ☐ его встретит ____________________. "
+                          "в школу ребёнок □ идёт домой самостоятельно □ его встретит ____________________. "
                           "С правилами поведения на экскурсии ознакомлен(а).", s["item"]),
-                Paragraph("Телефон ______________ &nbsp; Подпись ______________ / ______________ &nbsp; "
-                          "Дата ____________", s["item"]),
-                Paragraph("✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — —", s["center"]),
+                Paragraph("Телефон ____________ &nbsp; Подпись __________ / ____________ &nbsp; "
+                          "Дата ________", s["item"]),
+                Paragraph("- - - - - - - - - - - - - - - - линия отреза - - - - - - - - - - - - - - - -", s["center"]),
             ]))
 
     # --- Образец Порядка для администрации
@@ -630,8 +630,8 @@ def build_order_docx(session: Session, excursion: Excursion) -> bytes:
     para("Реестр согласий законных представителей", bold=True)
     para(f"Сведения по состоянию на {pack.generated} МСК (срок приёма ответов — до {pack.deadline}). "
          f"Документ {pack.doc_no}. Текст приглашения: SHA-256 {pack.invite_hash}.")
-    rows = ([(r, "Отпускаю") for r in pack.going + pack.oral]
-            + [(r, f"Не сможет: {r.reason or 'без причины'}") for r in pack.not_going])
+    rows = ([(r, "Согласие") for r in pack.going + pack.oral]
+            + [(r, f"Отказ: {r.reason or 'без причины'}") for r in pack.not_going])
     _docx_table(doc, ["№", "Обучающийся", "Ответ", "Подписант", "MAX ID", "Способ", "Время ответа (МСК)", "История"],
                 [[i, r.name, verdict, r.signer or "—", r.max_id, r.method, r.signed_at, r.history]
                  for i, (r, verdict) in enumerate(rows, 1)])
@@ -656,12 +656,12 @@ def build_order_docx(session: Session, excursion: Excursion) -> bytes:
         para("Бланки согласия — для тех, кто ещё не ответил или отвечает на бумаге", bold=True)
         for r in pack.waiting:
             para("Согласие на участие обучающегося в экскурсии", bold=True)
-            para(f"Я, ______________________________ (ФИО), ☐ мать ☐ отец ☐ опекун (попечитель) обучающегося "
+            para(f"Я, ______________________________ (ФИО), □ мать □ отец □ опекун (попечитель) обучающегося "
                  f"{pack.class_title} класса {r.name}, даю согласие на участие в экскурсии {pack.title} "
                  f"{pack.date_short} с {pack.gathering} до {pack.returning} (сбор {pack.meeting_point}; "
                  f"передвижение: {pack.transport}; руководитель — {pack.teacher}).")
             para("Билет семья при желании покупает сама; школа деньги не собирает. После возвращения ребёнок "
-                 "☐ идёт домой самостоятельно ☐ его встретит ______________.")
+                 "□ идёт домой самостоятельно □ его встретит ______________.")
             para("Телефон ______________  Подпись ______________ / ______________  Дата ____________\n")
 
     _page_break(doc)
