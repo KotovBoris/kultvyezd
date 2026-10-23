@@ -159,9 +159,15 @@ class Excursion(SQLModel, table=True):
     responsible_teacher: str = ""
     meeting_point: str = "у главного входа школы"
     escorts: str = ""  # сопровождающие взрослые (помощник руководителя группы)
+    # Способ передвижения: от него зависит режим (автобус — организованная перевозка, ПП РФ № 680).
+    transport: str = "пешком и на общественном транспорте"
     created_by_user_id: Optional[int] = Field(default=None, index=True)
     # Учителю один раз сообщаем, что ответили все родители.
     teacher_notified_complete: bool = False
+    # День выезда: когда группа выехала и вернулась (родителям уходит сообщение).
+    departed_at: Optional[datetime] = None
+    returned_at: Optional[datetime] = None
+    cancelled: bool = False
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -182,6 +188,8 @@ class ExcursionParticipant(SQLModel, table=True):
     signed_by_max_user_id: Optional[int] = None
     signed_source: Optional[str] = None
     signed_at: Optional[datetime] = None
+    # Перекличка в день выезда: None — ещё не отмечен, True — на месте, False — не пришёл.
+    present: Optional[bool] = None
     rejection_reason: Optional[str] = None
     ticket_number: Optional[str] = None
 
@@ -216,6 +224,9 @@ class BotLinkCode(SQLModel, table=True):
     student_id: int
     parent_phone: str = ""
     used: bool = False
+    # Приглашение второго родителя: по ссылке создаётся ещё один контакт ребёнка.
+    new_parent: bool = False
+    invited_by_user_id: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

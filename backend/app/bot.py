@@ -20,6 +20,7 @@ from .models import (
     BotLinkCode,
     ConsentStatus,
     Excursion,
+    ExcursionParticipant,
     ParentContact,
     SchoolClass,
     Student,
@@ -33,7 +34,8 @@ settings = get_settings()
 WEEKDAYS = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
           "сентября", "октября", "ноября", "декабря"]
-REJECT_REASONS = {"ill": "Болезнь", "family": "Семейные обстоятельства", "other": "Другая причина"}
+# Причины без медицинских подробностей: сведения о здоровье — особая категория ПДн (152-ФЗ, ст. 10).
+REJECT_REASONS = {"personal": "Личные причины", "family": "Семейные обстоятельства", "other": "Другие планы"}
 
 
 def human_date(value) -> str:
@@ -45,6 +47,7 @@ def human_date(value) -> str:
 def human_deadline(value: datetime | None) -> str:
     if not value:
         return ""
+    value = value + services.MSK
     return f"{value.day} {MONTHS[value.month - 1]}, {value:%H:%M}"
 
 
@@ -100,6 +103,19 @@ class BotService:
                 return
             await self._reply(chat_id, user_id,
                               "Ссылка-приглашение устарела. Попросите классного руководителя прислать новую.")
+            return
+
+        if payload.startswith("pair_"):
+            with Session(engine) as session:
+                profile_name = " ".join(p for p in (str(user.get("first_name") or ""), str(user.get("last_name") or "")) if p)
+                student = services.accept_pair_code(session, payload[len("pair_"):], user_id, profile_name)
+            if student:
+                await self._reply(chat_id, user_id,
+                                  f"Готово: вы подключены как второй родитель — {student.full_name}. "
+                                  "Приглашения на выезды теперь будут приходить и вам.")
+                await self._send_trips(chat_id, user_id)
+                return
+            await self._reply(chat_id, user_id, "Ссылка уже использована или устарела. Попросите прислать новую.")
             return
 
         if payload.startswith("join_"):
@@ -226,8 +242,8 @@ class BotService:
                 await self._reply(chat_id, user_id, text, keyboard)
 
     # ------------------------------------------------------------------ карточки
-    def _trip_lines(self, excursion: Excursion) -> list[str]:
-        """Что, когда, деньги, кто ведёт — не длиннее 4 строк, словами, без канцелярита."""
+    def _trip_lines(self, excursion: Excursion, student: Student | None = None) -> list[str]:
+        """Что, когда, деньги — коротко и словами, без канцелярита."""
         lines = [f"{quoted(excursion.title)} — {excursion.location_name}"]
         when = human_date(excursion.event_date)
         if excursion.gathering_time:
@@ -236,61 +252,81 @@ class BotService:
             when += f", вернёмся к {excursion.return_time:%H:%M}"
         lines.append(f"Когда: {when}")
         if excursion.ticket_price:
-            price = f"Билет {excursion.ticket_price:.0f} ₽ — оплачиваете сами в кассе"
-            if excursion.is_pushkin_card:
-                price += " или «Пушкинской картой» ребёнка (14+)"
+            price = f"Билет: {excursion.ticket_price:.0f} ₽ — покупаете сами на сайте или в кассе учреждения"
+            pushkin = services.pushkin_for(student, excursion)
+            if pushkin is True:
+                price += ", можно «Пушкинской картой» ребёнка"
+            elif pushkin is None:
+                price += " (если ребёнку уже 14, можно «Пушкинской картой»)"
             lines.append(price + ". Школа деньги не собирает.")
         else:
             lines.append("Вход бесплатный.")
-        if excursion.responsible_teacher:
-            lines.append(f"Ведёт: {excursion.responsible_teacher}")
         return lines
 
     def _parent_card(self, excursion: Excursion, student_name: str, participant) -> tuple[str, list[dict]]:
-        """Текст и кнопки карточки выезда для родителя — по текущему статусу ребёнка."""
+        """Текст и кнопки карточки выезда для родителя — по текущему статусу ребёнка.
 
-        lines = self._trip_lines(excursion)
+        Требования из тестов с родителями 60+: в первой строке — чей ребёнок и класс, дальше —
+        кто пишет (учитель, школа), кнопки называют ребёнка, явно сказано, что платить в чате
+        ничего не нужно, и есть контакт учителя.
+        """
+        with Session(engine) as session:
+            student = session.get(Student, participant.student_id)
+            klass = session.get(SchoolClass, excursion.class_id)
+        name = first_name(student_name)
+        class_title = klass.title if klass else ""
+        teacher = excursion.responsible_teacher or (klass.teacher_name if klass else "") or "классный руководитель"
+        contact = f"Вопросы — {teacher}" + (f", {klass.teacher_phone}" if klass and klass.teacher_phone else "") + "."
+        lines = self._trip_lines(excursion, student)
         open_btn = [app_button("Подробнее", f"trip_{excursion.id}")]
+        head = f"{student_name}{f' ({class_title})' if class_title else ''}"
+
         if participant.consent_status == ConsentStatus.PENDING:
             deadline = human_deadline(excursion.deadline)
-            tail = f"Ответьте до {deadline}." if deadline else "Ответьте, пожалуйста."
+            school = f" ({klass.school_name})" if klass and klass.school_name else ""
             keyboard = inline_keyboard([
-                [callback_button("✅ Отпускаю", f"consent:{excursion.id}:{participant.student_id}:APPROVED")],
-                [callback_button("✖ Не сможет", f"consent:{excursion.id}:{participant.student_id}:REJECTED")],
+                [callback_button(f"✅ Да, {name} пойдёт", f"consent:{excursion.id}:{participant.student_id}:APPROVED")],
+                [callback_button(f"Нет, {name} не пойдёт", f"consent:{excursion.id}:{participant.student_id}:REJECTED")],
                 open_btn,
             ])
-            text = "\n".join([f"{student_name}: приглашение на выезд", "", *lines, "", tail,
-                              "Ваш ответ кнопкой считается подписью."])
+            text = "\n".join([
+                f"{head} — приглашение на выезд",
+                f"Здравствуйте! Классный руководитель {teacher}{school} зовёт класс:",
+                "",
+                *lines,
+                "",
+                (f"Ответьте до {deadline}. " if deadline else "") + "Ответ кнопкой — ваша подпись под согласием "
+                "на поход. Платить в чате ничего не нужно.",
+                contact,
+            ])
             return text, [keyboard]
 
-        when = participant.signed_at.strftime("%d.%m в %H:%M") if participant.signed_at else ""
-        can_change = not (excursion.deadline and datetime.utcnow() > excursion.deadline)
+        when = services.msk_stamp(participant.signed_at)
+        can_change = not services.trip_started(excursion)
         change_btn = [callback_button("Изменить ответ", f"change:{excursion.id}:{participant.student_id}")]
         if participant.consent_status == ConsentStatus.REJECTED:
             text = "\n".join([
-                f"Готово. {student_name}: вы ответили «не сможет» "
-                f"({(participant.rejection_reason or 'без причины').lower()}).",
-                f"Ответ записан{', ' + when if when else ''}. Классный руководитель уже видит его.",
-                "", *lines,
+                f"Готово: вы ответили, что {name} не пойдёт ({(participant.rejection_reason or 'без причины').lower()}).",
+                f"{head}. Ответ записан{' ' + when if when else ''}, учитель уже видит его.",
+                "", *lines, contact,
             ])
             return text, [inline_keyboard([open_btn] + ([change_btn] if can_change else []))]
 
         rows: list[list[dict]] = []
-        status = f"Готово. {student_name}: вы отпустили на выезд ({human_date(excursion.event_date)})."
-        extra: list[str] = [f"Подпись записана{', ' + when if when else ''}."]
-        if participant.ticket_status == TicketStatus.WAITING_PAYMENT:
-            extra.append("Остался билет: купите его сами и нажмите «Билет купили».")
+        status = f"Готово: {name} идёт на выезд — {human_date(excursion.event_date)}."
+        extra: list[str] = [f"{head}. Подпись записана{' ' + when if when else ''}."]
+        if excursion.ticket_price:
+            # Учитель оплату не видит и о ней не напоминает: семья решает сама (ВК-2227/08).
+            extra.append("Билет семья покупает сама, если ещё не купила. Трудности с оплатой — скажите "
+                         "классному руководителю.")
             if excursion.ticket_sale_url:
-                rows.append([link_button("Купить билет", excursion.ticket_sale_url)])
-            rows.append([callback_button("Билет купили", f"ticket:{excursion.id}:{participant.student_id}")])
-        elif participant.ticket_status == TicketStatus.PAID:
-            extra.append("Билет отмечен — всё готово.")
+                rows.append([link_button("Сайт учреждения", excursion.ticket_sale_url)])
         else:
             extra.append("Больше ничего делать не нужно.")
         rows.append(open_btn)
-        if can_change and participant.ticket_status != TicketStatus.PAID:
+        if can_change:
             rows.append(change_btn)
-        return "\n".join([status, *extra, "", *lines]), [inline_keyboard(rows)]
+        return "\n".join([status, *extra, "", *lines, contact]), [inline_keyboard(rows)]
 
     # ------------------------------------------------------------------ кнопки
     async def _on_callback(self, update: dict) -> None:
@@ -443,12 +479,91 @@ class BotService:
             await self.notify_teacher_if_complete(exc_id)
 
     # ------------------------------------------------------------------ исходящие
+    async def invite_one(self, excursion_id: int, student_id: int, user_id: int) -> bool:
+        """Приглашение одному родителю — тому, кто только что подключился к классу."""
+        with Session(engine) as session:
+            excursion = session.get(Excursion, excursion_id)
+            participant = services.get_participant(session, excursion_id, student_id)
+            student = session.get(Student, student_id)
+            if not (excursion and participant and student) or excursion.cancelled:
+                return False
+            if participant.consent_status != ConsentStatus.PENDING or services.trip_started(excursion):
+                return False
+            text, keyboard = self._parent_card(excursion, student.full_name, participant)
+        return await self.client.send_message(user_id=user_id, text=text, attachments=keyboard) is not None
+
+    async def notify_owner_joined(self, klass: SchoolClass, parent_name: str, student_name: str) -> None:
+        teacher_id = klass.teacher_max_id or klass.owner_user_id
+        if not teacher_id:
+            return
+        await self.client.send_message(
+            user_id=teacher_id,
+            text=f"{klass.title}: подключился родитель — {parent_name} ({student_name}). "
+                 "Приглашения на выезды уже отправлены ему в MAX.",
+        )
+
+    def _going_parents(self, session: Session, excursion: Excursion) -> list[tuple[Student, ParentContact, object]]:
+        result = []
+        for part in session.exec(select(ExcursionParticipant).where(
+                ExcursionParticipant.excursion_id == excursion.id)).all():
+            student = session.get(Student, part.student_id)
+            for parent in services.student_parents(session, part.student_id):
+                if parent.max_user_id and not parent.is_virtual and student:
+                    result.append((student, parent, part))
+        return result
+
+    async def notify_milestone(self, excursion_id: int, kind: str) -> int:
+        """День выезда: «группа выехала» (кто на месте, кто не пришёл) и «группа вернулась»."""
+        messages: list[tuple[int, str]] = []
+        with Session(engine) as session:
+            excursion = session.get(Excursion, excursion_id)
+            if not excursion:
+                return 0
+            now = (datetime.utcnow() + services.MSK).strftime("%H:%M")
+            for student, parent, part in self._going_parents(session, excursion):
+                if part.consent_status != ConsentStatus.APPROVED:
+                    continue
+                name = first_name(student.full_name)
+                if kind == "departed":
+                    if part.present is False:
+                        text = (f"{quoted(excursion.title)}: группа выехала в {now}, но {name} не пришёл(а) на сбор. "
+                                "Если всё в порядке — ответьте классному руководителю.")
+                    else:
+                        text = f"{quoted(excursion.title)}: группа выехала в {now}. {name} с классом."
+                else:
+                    text = f"{quoted(excursion.title)}: группа вернулась к школе в {now}. Можно встречать {name}."
+                messages.append((parent.max_user_id, text))
+        sent = 0
+        for user_id, text in messages:
+            if await self.client.send_message(user_id=user_id, text=text) is not None:
+                sent += 1
+        return sent
+
+    async def notify_cancelled(self, excursion_id: int) -> int:
+        messages: list[tuple[int, str]] = []
+        with Session(engine) as session:
+            excursion = session.get(Excursion, excursion_id)
+            if not excursion:
+                return 0
+            for student, parent, part in self._going_parents(session, excursion):
+                if part.consent_status == ConsentStatus.REJECTED:
+                    continue
+                messages.append((parent.max_user_id,
+                                 f"Выезд {quoted(excursion.title)} ({human_date(excursion.event_date)}) отменён. "
+                                 f"{first_name(student.full_name)} остаётся на уроках по расписанию. "
+                                 "Если вы уже купили билет — уточните у классного руководителя про возврат."))
+        sent = 0
+        for user_id, text in messages:
+            if await self.client.send_message(user_id=user_id, text=text) is not None:
+                sent += 1
+        return sent
+
     async def invite_parents(self, excursion_id: int) -> int:
         """Персональное приглашение каждому подключённому родителю — с кнопками ответа."""
         sent = 0
         with Session(engine) as session:
             excursion = session.get(Excursion, excursion_id)
-            if not excursion:
+            if not excursion or excursion.cancelled:
                 return 0
             cards = []
             for student, parent in services.invitation_targets(session, excursion):
@@ -475,7 +590,7 @@ class BotService:
         else:
             verdict = "зафиксирован отказ"
         by = participant.signed_by_name or "законный представитель"
-        when = participant.signed_at.strftime("%d.%m в %H:%M") if participant.signed_at else ""
+        when = services.msk_stamp(participant.signed_at)
         text = f"По выезду {quoted(excursion.title)} ({student.full_name}) {verdict} ({by}{', ' + when if when else ''})."
         for parent in others:
             if parent.is_virtual:
@@ -498,12 +613,10 @@ class BotService:
             session.commit()
             title, class_title = excursion.title, klass.title
         text = (
-            f"{class_title}: ответили все родители по выезду {quoted(title)}.\n"
-            f"Едут: {stats['going']}, не едут: {stats['not_going']}."
+            f"{class_title}, {quoted(title)}: ответили все родители.\n"
+            f"Отпускают: {stats['going']}, не смогут: {stats['not_going']}.\n\n"
+            "Готов проект приказа для директора, список группы, реестр согласий и ведомость инструктажа."
         )
-        if stats["waiting_ticket"]:
-            text += f"\nЕщё не отметили билет: {stats['waiting_ticket']}."
-        text += "\n\nПакет для директора готов: приказ, список группы, реестр согласий и лист инструктажа."
         await self.client.send_message(user_id=teacher_id, text=text, attachments=[inline_keyboard([
             [callback_button("Получить документы", f"docs:{excursion_id}")],
             [app_button("Открыть выезд", f"trip_{excursion_id}")],

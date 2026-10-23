@@ -47,7 +47,7 @@ _KIDS: list[tuple[str, str, str, str]] = [
     ("Журавлёва Мария Андреевна", "2013-11-11", "Журавлёва Ольга Викторовна", "Мама"),
     ("Зарипов Ильназ Ленарович", "2013-04-19", "Зарипова Лейсан Рустемовна", "Мама"),
     ("Козлов Матвей Денисович", "2013-12-03", "Козлов Денис Викторович", "Папа"),
-    ("Латыпова Карина Булатовна", "2013-01-17", "Латыпова Резеда Ирековна", "Бабушка"),
+    ("Латыпова Карина Булатовна", "2013-01-17", "Латыпова Резеда Ирековна", "Опекун"),
     ("Морозов Даниил Сергеевич", "2013-05-29", "Морозова Татьяна Юрьевна", "Мама"),
     ("Насырова Диляра Рамилевна", "2013-09-11", "Насырова Лилия Фаритовна", "Мама"),
 ]
@@ -58,7 +58,7 @@ _SAMPLE_PATTERN = {
     6: "PAID", 7: "WAIT", 8: "PENDING", 9: "PENDING", 10: "PAID", 11: "PENDING",
 }
 
-_REJECT_REASONS = ["Болезнь", "Семейные обстоятельства"]
+_REJECT_REASONS = ["Личные причины", "Семейные обстоятельства"]
 
 
 def new_invite_code() -> str:
@@ -166,7 +166,7 @@ def _create_sample_excursion(session: Session, klass: SchoolClass) -> Excursion 
             part.signed_at = now - timedelta(hours=random.randint(1, 20))
             if kind == "REJECT":
                 part.consent_status = ConsentStatus.REJECTED
-                part.rejection_reason = "Болезнь"
+                part.rejection_reason = "Семейные обстоятельства"
             else:
                 part.consent_status = ConsentStatus.APPROVED
                 if exc.ticket_price > 0:
@@ -226,6 +226,49 @@ def delete_sandbox(session: Session, user_id: int) -> bool:
     session.delete(klass)
     session.commit()
     return True
+
+
+def adopt_virtual_child(session: Session, klass: SchoolClass, user_id: int, name: str) -> Student | None:
+    """Живое демо: человек открыл ссылку демо-класса и становится родителем свободного ученика.
+
+    Так на защите член жюри сканирует QR со слайда и через минуту отвечает «Да, пойдёт»
+    со своего телефона, а у учителя на экране появляется его имя.
+    """
+    mine = session.exec(
+        select(ParentContact).where(ParentContact.max_user_id == user_id)
+        .join(Student, Student.id == ParentContact.student_id).where(Student.class_id == klass.id)
+    ).first()
+    if mine:
+        return session.get(Student, mine.student_id)
+    students = session.exec(select(Student).where(Student.class_id == klass.id).order_by(Student.full_name)).all()
+    trip_ids = [e.id for e in session.exec(select(Excursion).where(Excursion.class_id == klass.id)).all()]
+
+    def pending_count(sid: int) -> int:
+        return len([p for p in session.exec(select(ExcursionParticipant).where(
+            ExcursionParticipant.student_id == sid, ExcursionParticipant.excursion_id.in_(trip_ids or [-1]))).all()
+            if p.consent_status == ConsentStatus.PENDING])
+
+    candidates = []
+    for st in students:
+        parents = services.student_parents(session, st.id)
+        if parents and all(p.is_virtual for p in parents):
+            candidates.append((-pending_count(st.id), st.full_name, st, parents[0]))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda c: (c[0], c[1]))
+    _, _, student, parent = candidates[0]
+    parent.max_user_id = user_id
+    parent.is_virtual = False
+    parent.full_name = name or "Гость демо"
+    parent.role = "Родитель"
+    parent.phone_number = ""
+    parent.confirmed = True
+    session.add(parent)
+    for answer in session.exec(select(DemoAnswer).where(DemoAnswer.student_id == student.id, DemoAnswer.done == False)).all():  # noqa: E712
+        answer.done = True
+        session.add(answer)
+    session.commit()
+    return student
 
 
 def schedule_virtual_answers(session: Session, excursion: Excursion, now: datetime | None = None) -> int:

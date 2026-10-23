@@ -100,6 +100,7 @@ class ClassCreate(BaseModel):
     school_name: str = ""
     school_number: str = ""
     teacher_name: str = ""
+    teacher_phone: str = ""
     chat_id: int | None = None
     user_id: int | None = None
     students: list[StudentCreate] = Field(default_factory=list)
@@ -138,6 +139,7 @@ class ExcursionCreate(BaseModel):
     order_basis: str | None = None
     meeting_point: str | None = None
     escorts: str | None = None
+    transport: str | None = None
     notify_parents: bool = True
 
 
@@ -157,6 +159,7 @@ class ParticipantRow(BaseModel):
     signed_by_max_user_id: int | None = None
     signed_source: str | None = None
     signed_at: datetime | None = None
+    present: bool | None = None
     rejection_reason: str | None = None
     ticket_number: str | None = None
 
@@ -188,6 +191,10 @@ class ExcursionOut(BaseModel):
     responsible_teacher: str
     meeting_point: str = ""
     escorts: str = ""
+    transport: str = ""
+    departed_at: datetime | None = None
+    returned_at: datetime | None = None
+    cancelled: bool = False
     class_title: str = ""
     is_demo: bool = False
     stats: ExcursionStats | None = None
@@ -326,6 +333,7 @@ class JoinRequest(BaseModel):
 
 class JoinInfoOut(BaseModel):
     code: str
+    is_demo: bool = False
     class_title: str
     school_name: str
     teacher_name: str
@@ -342,3 +350,41 @@ class JoinOut(BaseModel):
 class SendDocumentsOut(BaseModel):
     delivered: bool
     message: str
+
+
+class SecondParentInviteRequest(BaseModel):
+    student_id: int
+
+
+class SecondParentInviteOut(BaseModel):
+    code: str
+    app_link: str
+    bot_link: str
+    student_name: str
+
+
+class PairRequest(BaseModel):
+    code: str
+
+
+class PairInfoOut(BaseModel):
+    code: str
+    student_name: str
+    class_title: str
+    invited_by: str
+
+
+class AttendanceRequest(BaseModel):
+    student_id: int
+    present: bool | None
+
+
+class MilestoneRequest(BaseModel):
+    kind: Literal["departed", "returned"]
+
+
+class MilestoneOut(BaseModel):
+    kind: str
+    at: datetime
+    notified: int
+    absent: list[str] = Field(default_factory=list)

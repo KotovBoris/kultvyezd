@@ -155,12 +155,12 @@ async def test_FIN_10_invite_parents_and_complete_notice(client: TestClient) -> 
     bot = BotService(client=fake)
     exc_id = info["excursion_ids"][0]
     sent = await bot.invite_parents(exc_id)
-    assert sent == 1 and "Отпускаю" in str(fake.sent[-1]["attachments"])
+    assert sent == 1 and "пойдёт" in str(fake.sent[-1]["attachments"])
     # Пользователь отвечает в боте — карточка заменяется статусом
     await bot.handle_update({"update_type": "message_callback", "callback": {
         "callback_id": "cb-9", "payload": f"consent:{exc_id}:{info['child_student_id']}:APPROVED",
         "user": {"user_id": USER}}, "message": {"recipient": {"chat_id": 1}}})
-    assert "отпустили" in fake.answers[-1]["text"]
+    assert "идёт на выезд" in fake.answers[-1]["text"]
     # Остальные отвечают — учителю приходит итог с кнопкой документов
     with Session(engine) as s:
         exc = s.get(Excursion, exc_id)
@@ -227,3 +227,75 @@ def test_FIN_14_teacher_paper_consent(client: TestClient) -> None:
     ok = client.post(f"/api/v1/excursions/{exc_id}/consent/reset", params={"user_id": USER},
                      json={"student_id": pending["student_id"], "as_teacher": True}).json()
     assert ok["changed"] is True
+
+
+def test_FIN_15_live_demo_join_adopts_virtual_child(client: TestClient) -> None:
+    owner = 7_700_300
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    inv = client.post(f"/api/v1/classes/{info['class_id']}/invite", params={"user_id": owner}).json()
+    assert client.get(f"/api/v1/join/{inv['code']}").json()["is_demo"] is True
+    guest = 7_700_301
+    r = client.post("/api/v1/parent/join", params={"user_id": guest}, json={"code": inv["code"]}).json()
+    assert r["status"] == "linked" and len(r["children"]) == 1
+    # Повторное открытие ссылки не забирает второго ребёнка
+    again = client.post("/api/v1/parent/join", params={"user_id": guest}, json={"code": inv["code"]}).json()
+    assert again["children"] == r["children"]
+    ctx = client.get("/api/v1/parent/context", params={"max_user_id": guest}).json()
+    assert ctx["children"][0]["student_name"] == r["children"][0]
+    with Session(engine) as s:
+        p = s.exec(select(ParentContact).where(ParentContact.max_user_id == guest)).first()
+        assert p.is_virtual is False
+        assert not s.exec(select(DemoAnswer).where(DemoAnswer.student_id == p.student_id,
+                                                   DemoAnswer.done == False)).all()  # noqa: E712
+
+
+def test_FIN_16_roll_call_milestones_and_cancel(client: TestClient) -> None:
+    owner = 7_700_400
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    exc_id = info["excursion_ids"][0]
+    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()
+    going = next(p for p in dash["participants"] if p["consent_status"] == "APPROVED")
+    assert client.post(f"/api/v1/excursions/{exc_id}/attendance", params={"user_id": owner + 1},
+                       json={"student_id": going["student_id"], "present": False}).status_code == 403
+    r = client.post(f"/api/v1/excursions/{exc_id}/attendance", params={"user_id": owner},
+                    json={"student_id": going["student_id"], "present": False})
+    assert r.status_code == 200
+    m = client.post(f"/api/v1/excursions/{exc_id}/milestone", params={"user_id": owner},
+                    json={"kind": "departed"}).json()
+    assert going["full_name"] in m["absent"]
+    trip = client.get(f"/api/v1/excursions/{exc_id}").json()
+    assert trip["departed_at"] and not trip["returned_at"]
+    c = client.post(f"/api/v1/excursions/{exc_id}/cancel", params={"user_id": owner}).json()
+    assert c["ok"] is True
+    assert client.get(f"/api/v1/excursions/{exc_id}").json()["cancelled"] is True
+
+
+def test_FIN_17_second_parent_by_link(client: TestClient) -> None:
+    owner = 7_700_500
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    sid = info["child_student_id"]
+    assert client.post("/api/v1/parent/second-invite", params={"user_id": owner + 9},
+                       json={"student_id": sid}).status_code == 403
+    inv = client.post("/api/v1/parent/second-invite", params={"user_id": owner}, json={"student_id": sid}).json()
+    assert "startapp=pair_" in inv["app_link"]
+    assert client.get(f"/api/v1/parent/pair/{inv['code']}").json()["student_name"] == inv["student_name"]
+    spouse = 7_700_501
+    r = client.post("/api/v1/parent/pair", params={"user_id": spouse}, json={"code": inv["code"]}).json()
+    assert r["status"] == "linked"
+    ctx = client.get("/api/v1/parent/context", params={"max_user_id": spouse}).json()
+    assert ctx["children"][0]["student_id"] == sid
+    # Ссылка одноразовая
+    assert client.post("/api/v1/parent/pair", params={"user_id": spouse + 1},
+                       json={"code": inv["code"]}).json()["status"] == "bad_code"
+
+
+def test_FIN_18_pushkin_only_for_14_plus(client: TestClient) -> None:
+    from datetime import date
+
+    from app import services as svc
+    from app.models import Excursion as Exc, Student as St
+
+    exc = Exc(class_id=1, title="t", is_pushkin_card=True, event_date=date(2026, 11, 1))
+    assert svc.pushkin_for(St(class_id=1, full_name="a", birth_date=date(2013, 4, 12)), exc) is False
+    assert svc.pushkin_for(St(class_id=1, full_name="b", birth_date=date(2011, 10, 1)), exc) is True
+    assert svc.pushkin_for(St(class_id=1, full_name="c"), exc) is None

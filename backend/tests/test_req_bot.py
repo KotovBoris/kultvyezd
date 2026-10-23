@@ -147,11 +147,11 @@ async def test_BOT_8_callback_consent_rejected() -> None:
     # Сначала бот уточняет причину отказа — статус ещё не меняется.
     assert p.consent_status.value == "PENDING"
     assert "почему" in fake.answers[-1]["text"].lower()
-    await BotService(client=fake).handle_update(_callback(f"reason:{exc_id}:{sid}:ill"))
+    await BotService(client=fake).handle_update(_callback(f"reason:{exc_id}:{sid}:personal"))
     with Session(engine) as s:
         p = _participant(s, exc_id, sid)
     assert p.consent_status.value == "REJECTED"
-    assert p.rejection_reason == "Болезнь"
+    assert p.rejection_reason == "Личные причины"
 
 
 @pytest.mark.asyncio

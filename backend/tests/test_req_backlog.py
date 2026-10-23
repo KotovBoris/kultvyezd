@@ -238,24 +238,58 @@ def test_STAT_5_publish_without_chat_400(client: TestClient) -> None:
     assert r.status_code == 400
 
 
+def _daytime_utc() -> datetime:
+    """Полдень по Москве сегодня — вне «тихих часов» напоминаний."""
+    return datetime.utcnow().replace(hour=9, minute=0, second=0, microsecond=0)
+
+
 def test_REM_1_auto_reminder_kinds(client: TestClient) -> None:
     klass = _new_class(client)
-    deadline = datetime.utcnow() + timedelta(hours=20)
-    exc_body = make_excursion(client, klass, deadline=deadline.isoformat())
+    now = _daytime_utc()
+    exc_body = make_excursion(client, klass, deadline=(now + timedelta(hours=20)).isoformat())
     sid = klass["students"][0]["id"]
     with Session(engine) as s:
+        exc = s.get(Excursion, exc_body["id"])
+        exc.created_at = now - timedelta(hours=7)
+        exc.deadline = now + timedelta(hours=20)
+        s.add(exc)
         parent = s.exec(select(ParentContact).where(ParentContact.student_id == sid)).first()
         parent.max_user_id = 777010
         parent.confirmed = True
         s.add(parent)
         s.commit()
-        due = services.due_auto_reminders(s)
+        due = services.due_auto_reminders(s, now=now)
         mine = [d for d in due if d["excursion"].id == exc_body["id"] and d["student_id"] == sid]
-        assert {d["kind"] for d in mine} == {"H72", "H24"}
-        services.mark_reminder_sent(s, exc_body["id"], sid, "H72")
+        # Из подходящих ступеней (72 ч и 24 ч) уходит только самая срочная — без пачки сообщений.
+        assert {d["kind"] for d in mine} == {"H24"}
         services.mark_reminder_sent(s, exc_body["id"], sid, "H24")
-        due2 = services.due_auto_reminders(s)
+        due2 = services.due_auto_reminders(s, now=now)
         assert not [d for d in due2 if d["excursion"].id == exc_body["id"] and d["student_id"] == sid]
+        # Через 8,5 часа (до тихих часов) наступает ступень «12 часов до срока»
+        due3 = services.due_auto_reminders(s, now=now + timedelta(hours=8, minutes=30))
+        assert {d["kind"] for d in due3 if d["excursion"].id == exc_body["id"] and d["student_id"] == sid} == {"H12"}
+
+
+def test_REM_3_fresh_invite_and_quiet_hours(client: TestClient) -> None:
+    klass = _new_class(client)
+    now = _daytime_utc()
+    exc_body = make_excursion(client, klass, deadline=(now + timedelta(hours=20)).isoformat())
+    sid = klass["students"][0]["id"]
+    with Session(engine) as s:
+        exc = s.get(Excursion, exc_body["id"])
+        exc.created_at = now - timedelta(hours=1)  # приглашение пришло час назад
+        exc.deadline = now + timedelta(hours=20)
+        s.add(exc)
+        parent = s.exec(select(ParentContact).where(ParentContact.student_id == sid)).first()
+        parent.max_user_id = 777011
+        s.add(parent)
+        s.commit()
+        assert not [d for d in services.due_auto_reminders(s, now=now) if d["excursion"].id == exc_body["id"]]
+        night = now.replace(hour=20)  # 23:00 по Москве
+        exc.created_at = now - timedelta(days=1)
+        s.add(exc)
+        s.commit()
+        assert services.due_auto_reminders(s, now=night) == []
 
 
 def test_REM_2_no_reminders_after_deadline(client: TestClient) -> None:

@@ -345,7 +345,7 @@ def seed_demo_excursion(session: Session) -> int:
             signed_by_name=parent.full_name if status_consent != "PENDING" else None,
             signed_by_phone=parent.phone_number if status_consent != "PENDING" else None,
             signed_at=datetime.now() if status_consent != "PENDING" else None,
-            rejection_reason="Болезнь" if status_consent == "REJECTED" else None,
+            rejection_reason="Личные причины" if status_consent == "REJECTED" else None,
         )
         session.add(part)
     session.commit()

@@ -1,24 +1,27 @@
-"""Пакет документов по выезду — по образцам письма Минпросвещения России от 16.06.2022 № 06-836.
+"""Пакет документов по экскурсии — с учётом рекомендаций Минпросвещения России (письмо от 16.06.2022 № 06-836).
 
-Состав (один PDF для печати и такой же DOCX для правки под шапку школы):
-  • проект приказа об организации выездного мероприятия (по полям прил. 1 к 06-836);
-  • Приложение 1 — список группы с контактами законных представителей;
-  • Приложение 2 — реестр согласий: кто, когда и каким способом ответил (ПЭП, 63-ФЗ);
-  • Приложение 3 — ведомость целевого инструктажа (по форме прил. 3) и памятка (прил. 2);
-  • бумажные бланки согласия для тех, кто ещё не ответил или не пользуется MAX.
+Состав (PDF для печати и DOCX для правки под бланк школы):
+  • проект приказа об организации экскурсии (по полям прил. 1 к 06-836);
+  • приложение 1 — список группы (без контактов: приказ хранится по номенклатуре дел);
+  • рабочий список группы с телефонами законных представителей — для руководителя группы;
+  • приложение 2 — реестр согласий: кто, когда, каким способом и на какой текст ответил;
+  • приложение 3 — ведомость инструктажа (форма прил. 3) и памятка (по прил. 2);
+  • бумажные бланки согласия для тех, кто ещё не ответил или не пользуется MAX;
+  • образец Порядка получения согласий для администрации школы.
+Документ — проект: решение принимает и подписывает директор.
 """
 from __future__ import annotations
 
+import hashlib
 import io
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from docx import Document
-from docx.enum.section import WD_ORIENT  # noqa: F401  (оставлено для ручной правки шаблона)
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
 from docx.shared import Pt
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
@@ -27,30 +30,44 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlmodel import Session, select
 
-from .models import ConsentStatus, Excursion, ExcursionParticipant, ParentContact, SchoolClass, Student
+from .models import (
+    ConsentAudit,
+    ConsentStatus,
+    Excursion,
+    ExcursionParticipant,
+    ParentContact,
+    SchoolClass,
+    Student,
+)
 
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
           "сентября", "октября", "ноября", "декабря"]
+MSK = timedelta(hours=3)
 
-SOURCE_LABEL = {
-    "bot": "MAX, кнопка в чате",
-    "miniapp": "MAX, приложение ClassGo",
-    "demo": "MAX (демо)",
-    "paper": "бумажное согласие",
-    "call": "по телефону",
-    "person": "лично",
-    "api": "ClassGo",
+# Способы ответа. Только ПЭП и бумага дают письменное согласие (прил. 2 к 06-836, п. 2.3).
+METHOD = {
+    "bot": "ПЭП — кнопка в чате MAX",
+    "demo": "ПЭП — кнопка в чате MAX (демо)",
+    "miniapp": "ПЭП — мини-приложение ClassGo",
+    "api": "ПЭП — ClassGo",
+    "paper": "Бумага — отметку внёс учитель",
+    "call": "Устно — нужно письменное подтверждение",
+    "person": "Устно — нужно письменное подтверждение",
 }
+WRITTEN = {"bot", "demo", "miniapp", "api", "paper", None}
+AUDIT_LABEL = {"APPROVE": "Отпускаю", "REJECT": "Не сможет", "RESET": "ответ изменён"}
 
 MEMO = [
-    "Слушать руководителя группы и сопровождающих, выполнять их указания.",
-    "Не отходить от группы и не покидать место проведения мероприятия без разрешения руководителя.",
-    "Соблюдать правила дорожного движения: переходить дорогу только по пешеходному переходу и вместе с группой.",
-    "В общественном транспорте держаться за поручни, не стоять у дверей, не мешать другим пассажирам.",
-    "В музее и театре соблюдать правила учреждения: не трогать экспонаты без разрешения, не шуметь.",
-    "При плохом самочувствии или происшествии сразу сообщить руководителю группы.",
-    "Если отстал от группы — оставаться на месте и позвонить руководителю группы.",
-    "Иметь при себе заряженный телефон; номер руководителя группы записан в контактах.",
+    "Слушай руководителя группы и сопровождающих, выполняй их указания.",
+    "Не отходи от группы и не покидай место экскурсии без разрешения руководителя.",
+    "Переходи дорогу только по команде руководителя, по пешеходному переходу и вместе с группой.",
+    "В транспорте держись за поручни, не стой у дверей; садись и выходи только по команде руководителя.",
+    "В музее и театре соблюдай правила учреждения: не трогай экспонаты без разрешения, не шуми.",
+    "Одевайся по погоде, возьми воду. При плохом самочувствии сразу скажи руководителю.",
+    "Не трогай бесхозные вещи и сообщи о них руководителю.",
+    "При эвакуации слушай руководителя и сотрудников учреждения, сразу возвращайся к группе.",
+    "Если отстал от группы — оставайся на месте и позвони руководителю (если у тебя есть телефон, "
+    "заряди его и запиши номер руководителя).",
 ]
 
 
@@ -58,15 +75,19 @@ MEMO = [
 class Row:
     name: str
     birth: str
+    age: str
     parent: str
+    status_label: str
     phone: str
-    status: ConsentStatus
+    phone_masked: str
+    consent: ConsentStatus
     reason: str = ""
-    signed_by: str = ""
-    signed_at: str = ""
+    signer: str = ""
     method: str = ""
+    method_key: str | None = None
+    signed_at: str = ""
     max_id: str = ""
-    ticket: str = ""
+    history: str = ""
 
 
 @dataclass
@@ -74,44 +95,70 @@ class Pack:
     school: str
     class_title: str
     title: str
+    venue: str
+    address: str
     place: str
     date_long: str
     date_short: str
+    weekday: bool
     gathering: str
     returning: str
     meeting_point: str
     teacher: str
     escorts: str
+    transport: str
+    bus: bool
     basis: str
     deadline: str
+    generated: str
+    doc_no: str
+    invite_hash: str
     going: list[Row] = field(default_factory=list)
+    oral: list[Row] = field(default_factory=list)
     not_going: list[Row] = field(default_factory=list)
     waiting: list[Row] = field(default_factory=list)
-
-
-def _date_long(value) -> str:
-    if not value:
-        return "«___» ____________ 20__ г."
-    return f"«{value.day}» {MONTHS[value.month - 1]} {value.year} г."
-
-
-def _msk(value: datetime | None) -> str:
-    """Время хранится в UTC — в документах показываем московское."""
-    if not value:
-        return "—"
-    return (value + timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
 
 
 def _quoted(title: str) -> str:
     return title if "«" in title else f"«{title}»"
 
 
-def _basis(text: str) -> str:
-    """«план воспитательной работы» → «планом воспитательной работы» для преамбулы приказа."""
+def _basis(text: str, class_title: str) -> str:
+    """«план воспитательной работы» → «планом воспитательной работы 7Б класса» для преамбулы."""
     text = (text or "план воспитательной работы").strip()
     if text.lower().startswith("план "):
-        return "планом " + text[5:]
+        text = "планом " + text[5:]
     return text
+
+
+def _msk(value: datetime | None, seconds: bool = False) -> str:
+    if not value:
+        return "—"
+    return (value + MSK).strftime("%d.%m.%Y %H:%M:%S" if seconds else "%d.%m.%Y %H:%M")
+
+
+def _mask(phone: str) -> str:
+    digits = "".join(c for c in phone or "" if c.isdigit())
+    if len(digits) < 6:
+        return "—"
+    return f"+{digits[0]} {digits[1]}** ***-**-{digits[-2:]}"
+
+
+def _age(birth, on) -> str:
+    if not birth or not on:
+        return "—"
+    years = on.year - birth.year - ((on.month, on.day) < (birth.month, birth.day))
+    return str(years)
+
+
+def invitation_hash(excursion: Excursion) -> str:
+    """Хеш условий, на которые соглашается родитель: если учитель их поменяет, хеш изменится."""
+    parts = [
+        excursion.title, str(excursion.event_date), str(excursion.gathering_time), str(excursion.return_time),
+        excursion.meeting_point or "", excursion.location_name or "", excursion.address or "",
+        f"{excursion.ticket_price:.2f}", excursion.responsible_teacher or "", excursion.transport or "",
+    ]
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
 def _collect(session: Session, excursion: Excursion) -> Pack:
@@ -119,76 +166,143 @@ def _collect(session: Session, excursion: Excursion) -> Pack:
     parts = session.exec(
         select(ExcursionParticipant).where(ExcursionParticipant.excursion_id == excursion.id)
     ).all()
+    audits = session.exec(select(ConsentAudit).where(ConsentAudit.excursion_id == excursion.id)
+                          .order_by(ConsentAudit.created_at)).all()
+    class_title = klass.title if klass else ""
+    transport = excursion.transport or "пешком и на общественном транспорте"
+    event_date = excursion.event_date
     pack = Pack(
         school=excursion.school_name or (klass.school_name if klass else "") or "Образовательная организация",
-        class_title=klass.title if klass else "",
+        class_title=class_title,
         title=_quoted(excursion.title),
+        venue=excursion.location_name or "",
+        address=excursion.address or "",
         place=", ".join(p for p in (excursion.location_name, excursion.address) if p),
-        date_long=_date_long(excursion.event_date),
-        date_short=excursion.event_date.strftime("%d.%m.%Y") if excursion.event_date else "__.__.____",
+        date_long=f"{event_date.day} {MONTHS[event_date.month - 1]} {event_date.year} г." if event_date else "__.__.____",
+        date_short=event_date.strftime("%d.%m.%Y") if event_date else "__.__.____",
+        weekday=bool(event_date and event_date.weekday() < 5),
         gathering=excursion.gathering_time.strftime("%H:%M") if excursion.gathering_time else "__:__",
         returning=excursion.return_time.strftime("%H:%M") if excursion.return_time else "__:__",
         meeting_point=excursion.meeting_point or "у главного входа школы",
         teacher=excursion.responsible_teacher or (klass.teacher_name if klass else "") or "",
         escorts=excursion.escorts or "",
-        basis=_basis(excursion.order_basis),
+        transport=transport,
+        bus="автобус" in transport.lower(),
+        basis=_basis(excursion.order_basis, class_title),
         deadline=_msk(excursion.deadline),
+        generated=_msk(datetime.utcnow(), seconds=True),
+        doc_no=f"CG-{class_title}-{event_date:%Y%m%d}-{excursion.id:03d}" if event_date else f"CG-{excursion.id:03d}",
+        invite_hash=invitation_hash(excursion),
     )
     for p in parts:
         student = session.get(Student, p.student_id)
         parents = session.exec(select(ParentContact).where(ParentContact.student_id == p.student_id)).all()
         parent = next((x for x in parents if x.max_user_id), parents[0] if parents else None)
+        role = (parent.role if parent else "") or "законный представитель"
+        history = " → ".join(
+            f"{AUDIT_LABEL.get(a.action, a.action)} {_msk(a.created_at, seconds=True)[11:]}"
+            for a in audits if a.student_id == p.student_id and a.action in AUDIT_LABEL
+        )
         row = Row(
             name=student.full_name if student else f"#{p.student_id}",
             birth=student.birth_date.strftime("%d.%m.%Y") if student and student.birth_date else "—",
-            parent=f"{parent.full_name} ({parent.role.lower()})" if parent and parent.full_name else "—",
+            age=_age(student.birth_date if student else None, event_date),
+            parent=parent.full_name if parent and parent.full_name else "—",
+            status_label=role.lower(),
             phone=parent.phone_number if parent and parent.phone_number else "—",
-            status=p.consent_status,
+            phone_masked=_mask(parent.phone_number if parent else ""),
+            consent=p.consent_status,
             reason=p.rejection_reason or "",
-            signed_by=p.signed_by_name or "",
-            signed_at=_msk(p.signed_at),
-            method=SOURCE_LABEL.get(p.signed_source or "", "ClassGo"),
+            signer=p.signed_by_name or "",
+            method=METHOD.get(p.signed_source or "", "ПЭП — ClassGo"),
+            method_key=p.signed_source,
+            signed_at=_msk(p.signed_at, seconds=True),
             max_id=str(p.signed_by_max_user_id) if p.signed_by_max_user_id else "—",
-            ticket={"PAID": "куплен", "WAITING_PAYMENT": "не отмечен", "NOT_REQUIRED": "не нужен"}.get(
-                p.ticket_status.value, ""),
+            history=history or "изменений нет",
         )
         if p.consent_status == ConsentStatus.APPROVED:
-            pack.going.append(row)
+            (pack.going if p.signed_source in WRITTEN else pack.oral).append(row)
         elif p.consent_status == ConsentStatus.REJECTED:
             pack.not_going.append(row)
         else:
             pack.waiting.append(row)
-    for lst in (pack.going, pack.not_going, pack.waiting):
+    for lst in (pack.going, pack.oral, pack.not_going, pack.waiting):
         lst.sort(key=lambda r: r.name)
     return pack
 
 
+def _title(pack: Pack) -> str:
+    return f"Об организации экскурсии обучающихся {pack.class_title} класса в {pack.venue or 'учреждение культуры'} {pack.date_short}"
+
+
+def _preamble(pack: Pack) -> str:
+    return (
+        "В соответствии с п. 2 ч. 6 и ч. 7 ст. 28 Федерального закона от 29.12.2012 № 273-ФЗ «Об образовании "
+        "в Российской Федерации», Положением об организации экскурсий обучающихся, утверждённым приказом "
+        f"от ________ № ____, {pack.basis}, с учётом методических рекомендаций Минпросвещения России "
+        "(письмо от 16.06.2022 № 06-836), в целях развития познавательного интереса обучающихся"
+    )
+
+
 def _order_points(pack: Pack) -> list[str]:
     n = len(pack.going)
-    escorts = pack.escorts or "________________________________"
-    return [
-        f"Организовать {pack.date_short} выездное экскурсионное мероприятие {pack.title} "
-        f"для обучающихся {pack.class_title} класса в количестве {n} чел. согласно списку (приложение 1). "
-        f"Место проведения: {pack.place}.",
-        f"Назначить руководителем группы {pack.teacher or '________________________'}, "
-        f"возложив на него(неё) ответственность за жизнь и здоровье обучающихся во время мероприятия. "
-        f"Назначить сопровождающим (помощником руководителя группы): {escorts}.",
-        f"Установить время сбора группы — {pack.gathering} {pack.meeting_point}; "
-        f"контрольное время возвращения — {pack.returning}. О возвращении группы руководителю "
-        f"сообщить ответственному за контроль.",
-        "Руководителю группы: провести целевой инструктаж обучающихся по правилам безопасности под подпись "
-        "(приложение 3); иметь при себе список группы с контактами законных представителей (приложение 1); "
-        "обеспечить наличие согласий законных представителей на участие обучающихся (приложение 2).",
-        "Контроль за исполнением приказа возложить на заместителя директора по воспитательной работе "
-        "________________________.",
+    adults = 1 + (1 if pack.escorts else 0)
+    points = [
+        f"Организовать {pack.date_short} с {pack.gathering} до {pack.returning} экскурсию в {pack.place} "
+        f"для {n} обучающихся {pack.class_title} класса (приложение 1) в сопровождении {adults} "
+        f"{'работника' if adults == 1 else 'работников'} школы. Маршрут: школа — {pack.venue or 'место экскурсии'} — школа. "
+        f"Передвижение: {pack.transport}.",
+        f"Руководителем группы назначить: {pack.teacher or '________________________'}, классный руководитель "
+        f"{pack.class_title} класса. Возложить на руководителя группы ответственность за сохранение жизни и "
+        f"здоровья обучающихся с {pack.gathering} до {pack.returning} {pack.date_short}.",
+        f"Помощником руководителя группы назначить: {pack.escorts or '________________________ (ФИО, должность)'}.",
+        f"Время сбора — {pack.gathering} {pack.meeting_point}; контрольное время возвращения — {pack.returning}. "
+        "О прибытии к месту экскурсии и о возвращении в школу руководителю группы сообщить дежурному "
+        "администратору ____________________ по телефону ____________. При задержке более 15 минут — "
+        "сразу сообщить причину и новое время.",
+        f"Руководителю группы: до {pack.date_short} ознакомиться с Инструкцией по охране труда при проведении "
+        "экскурсий и провести с обучающимися инструктаж под подпись (приложение 3); иметь при себе копию "
+        "приказа, рабочий список группы с телефонами законных представителей, аптечку первой помощи, "
+        "мобильный телефон; пересчитывать обучающихся при выходе из школы, в пути, по прибытии и перед "
+        "возвращением.",
+        "Включить в список группы только обучающихся, на участие которых получены письменные согласия "
+        "законных представителей — на бумаге или в форме электронного документа, подписанного простой "
+        "электронной подписью по Порядку, утверждённому приказом от ________ № ____. Сведения о согласиях — "
+        "приложение 2.",
     ]
+    if pack.weekday:
+        points.append(
+            f"Заместителю директора по учебно-воспитательной работе ____________________ организовать "
+            f"{pack.date_short} замену уроков руководителя и помощника руководителя группы, а также учебные "
+            f"занятия по расписанию для обучающихся {pack.class_title} класса, не участвующих в экскурсии."
+        )
+    if pack.bus:
+        points.append(
+            "Организованную перевозку группы детей осуществить в соответствии с Правилами, утверждёнными "
+            "постановлением Правительства РФ от 02.06.2026 № 680: уведомление в Госавтоинспекцию подать не "
+            "позднее чем за 24 часа до начала перевозки, список по п. 13 Правил — рабочий список группы."
+        )
+    points.append(
+        "Контроль за исполнением приказа возложить на заместителя директора по воспитательной работе "
+        "____________________."
+    )
+    return points
 
 
-PREAMBLE = (
-    "В соответствии с Федеральным законом от 29.12.2012 № 273-ФЗ «Об образовании в Российской Федерации», "
-    "методическими рекомендациями Минпросвещения России по организации экскурсий и выездных мероприятий "
-    "(письмо от 16.06.2022 № 06-836) и {basis}, в целях развития познавательного интереса обучающихся"
-)
+AGREEMENT_TEMPLATE = [
+    "Согласия законных представителей на участие обучающихся в экскурсиях принимаются на бумаге или в форме "
+    "электронного документа, подписанного простой электронной подписью (ч. 2 ст. 6, ст. 9 Федерального закона "
+    "от 06.04.2011 № 63-ФЗ).",
+    "Электронный ответ даётся кнопкой в чат-боте или мини-приложении ClassGo в мессенджере MAX после принятия "
+    "законным представителем соглашения об электронной подписи. Подписант определяется по аккаунту MAX и его "
+    "номеру телефона, совпадающему с номером в данных школы.",
+    "Сведения о согласиях (время, способ, идентификатор аккаунта, текст приглашения) хранятся в журнале "
+    "ClassGo, в который можно только дописывать; выписка прилагается к приказу об экскурсии.",
+    "Законный представитель вправе в любой момент до начала экскурсии изменить ответ, отказаться от "
+    "электронной подписи и отвечать на бумаге, отозвать согласие на обработку персональных данных.",
+    "Оператор персональных данных — школа; ClassGo обрабатывает данные по поручению школы на основании "
+    "договора, хранение — на территории Российской Федерации.",
+]
 
 
 # ---------------------------------------------------------------------------- PDF
@@ -227,7 +341,8 @@ def _styles() -> dict[str, ParagraphStyle]:
     base = ParagraphStyle("base", fontName=font, fontSize=11, leading=15)
     return {
         "school": ParagraphStyle("school", parent=base, fontName=bold, alignment=TA_CENTER, fontSize=11.5),
-        "draft": ParagraphStyle("draft", parent=base, alignment=TA_CENTER, fontSize=9, textColor=colors.grey),
+        "draft": ParagraphStyle("draft", parent=base, alignment=TA_RIGHT, fontName=bold, fontSize=10,
+                                textColor=colors.HexColor("#9a2a2a")),
         "h1": ParagraphStyle("h1", parent=base, fontName=bold, fontSize=14, leading=18, alignment=TA_CENTER,
                              spaceBefore=6, spaceAfter=2),
         "h2": ParagraphStyle("h2", parent=base, fontName=bold, fontSize=12, leading=16, spaceBefore=4, spaceAfter=6),
@@ -235,9 +350,9 @@ def _styles() -> dict[str, ParagraphStyle]:
         "body": ParagraphStyle("body", parent=base, alignment=TA_JUSTIFY, firstLineIndent=10 * mm),
         "item": ParagraphStyle("item", parent=base, alignment=TA_LEFT, spaceBefore=3),
         "small": ParagraphStyle("small", parent=base, fontSize=9, leading=12, textColor=colors.HexColor("#444444")),
-        "cell": ParagraphStyle("cell", parent=base, fontSize=9.5, leading=12),
-        "cellb": ParagraphStyle("cellb", parent=base, fontName=bold, fontSize=9.5, leading=12),
-        "appx": ParagraphStyle("appx", parent=base, fontSize=9.5, leading=12, alignment=2),
+        "cell": ParagraphStyle("cell", parent=base, fontSize=9, leading=11.5),
+        "cellb": ParagraphStyle("cellb", parent=base, fontName=bold, fontSize=9, leading=11.5),
+        "appx": ParagraphStyle("appx", parent=base, fontSize=9.5, leading=12, alignment=TA_RIGHT),
     }
 
 
@@ -248,14 +363,14 @@ def _table(data: list[list], widths: list[float], s: dict[str, ParagraphStyle]) 
         ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#9aa1ab")),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef1f5")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     return t
 
 
-def _sign_line(label: str, s: dict[str, ParagraphStyle]) -> Paragraph:
-    return Paragraph(f"{label} ______________________ / ______________________", s["item"])
+def _appx(n: int | str, s) -> Paragraph:
+    return Paragraph(f"Приложение {n} к приказу от «___» ________ 20__ г. № ____", s["appx"])
 
 
 def build_order_pdf(session: Session, excursion: Excursion) -> bytes:
@@ -263,140 +378,182 @@ def build_order_pdf(session: Session, excursion: Excursion) -> bytes:
     s = _styles()
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=25 * mm, rightMargin=15 * mm,
-                            topMargin=15 * mm, bottomMargin=15 * mm,
-                            title=f"Приказ о выезде {pack.title}", author="ClassGo")
+                            topMargin=15 * mm, bottomMargin=16 * mm,
+                            title=f"Проект приказа об экскурсии {pack.class_title} {pack.date_short}", author="")
     story: list = []
 
     # --- Проект приказа
     story += [
+        Paragraph("ПРОЕКТ", s["draft"]),
         Paragraph(pack.school, s["school"]),
-        Paragraph("проект документа подготовлен в ClassGo", s["draft"]),
         Spacer(1, 6 * mm),
         Paragraph("ПРИКАЗ", s["h1"]),
-        Paragraph("№ ________ &nbsp;&nbsp;&nbsp; от «___» ____________ 20__ г.", s["center"]),
-        Spacer(1, 4 * mm),
-        Paragraph(f"<b>Об организации выездного экскурсионного мероприятия обучающихся {pack.class_title} класса</b>",
+        Paragraph("«___» ____________ 20__ г. &nbsp;&nbsp;&nbsp;&nbsp; г. Казань &nbsp;&nbsp;&nbsp;&nbsp; № ________",
                   s["center"]),
+        Spacer(1, 4 * mm),
+        Paragraph(f"<b>{_title(pack)}</b>", s["center"]),
         Spacer(1, 5 * mm),
-        Paragraph(PREAMBLE.format(basis=pack.basis) + ",", s["body"]),
+        Paragraph(_preamble(pack) + "", s["body"]),
         Spacer(1, 2 * mm),
         Paragraph("<b>ПРИКАЗЫВАЮ:</b>", s["item"]),
     ]
     for i, text in enumerate(_order_points(pack), 1):
         story.append(Paragraph(f"{i}. {text}", s["item"]))
     story += [
-        Spacer(1, 10 * mm),
-        _sign_line("Директор", s),
+        Spacer(1, 9 * mm),
+        Paragraph("Директор &nbsp; ______________ &nbsp; И. О. Фамилия", s["item"]),
         Spacer(1, 6 * mm),
         Paragraph("С приказом ознакомлены:", s["item"]),
-        Paragraph(f"Руководитель группы: {pack.teacher or '________________'} &nbsp; ____________ (подпись)", s["item"]),
-        _sign_line("Сопровождающий", s),
+        Paragraph(f"______________ {pack.teacher or '________________'} &nbsp; «___» ________ 20__ г.", s["item"]),
+        Paragraph(f"______________ {pack.escorts or '________________'} &nbsp; «___» ________ 20__ г.", s["item"]),
+        Paragraph("______________ ________________ (зам. директора по ВР) &nbsp; «___» ________ 20__ г.", s["item"]),
+        Spacer(1, 6 * mm),
+        Paragraph(f"Исп.: {pack.teacher or '________________'}", s["small"]),
         PageBreak(),
     ]
 
-    # --- Приложение 1. Список группы
+    # --- Приложение 1. Список группы (без контактов)
     story += [
-        Paragraph(f"Приложение 1 к приказу от «___» ________ 20__ г. № ____", s["appx"]),
-        Paragraph(f"Список группы обучающихся {pack.class_title} класса", s["h2"]),
-        Paragraph(f"Мероприятие: {pack.title}, {pack.date_short}. Место: {pack.place}.", s["small"]),
+        _appx(1, s),
+        Paragraph(f"Список обучающихся {pack.class_title} класса — участников экскурсии", s["h2"]),
+        Paragraph(f"Экскурсия {pack.title}, {pack.date_short}, {pack.place}.", s["small"]),
         Spacer(1, 3 * mm),
     ]
-    data = [["№", "ФИО обучающегося", "Дата рождения", "Законный представитель", "Телефон"]]
+    data = [["№", "ФИО обучающегося", "Класс"]]
     for i, r in enumerate(pack.going, 1):
-        data.append([i, r.name, r.birth, r.parent, r.phone])
+        data.append([i, r.name, pack.class_title])
     if not pack.going:
-        data.append(["", "Пока никто не отпущен", "", "", ""])
-    story.append(_table(data, [9 * mm, 48 * mm, 22 * mm, 55 * mm, 33 * mm], s))
+        data.append(["", "Пока нет письменных согласий", ""])
+    story.append(_table(data, [12 * mm, 120 * mm, 30 * mm], s))
     story += [
         Spacer(1, 4 * mm),
-        Paragraph(f"Всего обучающихся: {len(pack.going)}. Руководитель группы: {pack.teacher or '________'}. "
-                  f"Сопровождающие: {pack.escorts or '________'}.", s["item"]),
-        Paragraph("Дата рождения указывается при организованной перевозке группы детей автобусом "
-                  "(ПП РФ от 02.06.2026 № 680, п. 13).", s["small"]),
+        Paragraph(f"Всего: {len(pack.going)} обучающихся. Руководитель группы: {pack.teacher or '________'}. "
+                  f"Помощник руководителя: {pack.escorts or '________'}.", s["item"]),
+    ]
+    if pack.oral:
+        story.append(Paragraph("Не включены — согласие получено устно, нужно письменное подтверждение: "
+                               + ", ".join(r.name for r in pack.oral) + ".", s["small"]))
+    story.append(PageBreak())
+
+    # --- Рабочий список группы с контактами
+    story += [
+        Paragraph("Рабочий список группы с контактами законных представителей", s["h2"]),
+        Paragraph("Для руководителя группы на время экскурсии. Не приобщается к приказу; после экскурсии "
+                  "уничтожить" + (" (при автобусной перевозке — хранить 90 дней, п. 24 Правил, утв. ПП РФ № 680)."
+                                  if pack.bus else "."), s["small"]),
+        Spacer(1, 3 * mm),
+    ]
+    header = ["№", "ФИО обучающегося"] + (["Возраст"] if pack.bus else []) + ["Законный представитель", "Телефон"]
+    widths = [9 * mm, 52 * mm] + ([16 * mm] if pack.bus else []) + ([60 * mm, 33 * mm] if pack.bus else [70 * mm, 39 * mm])
+    data = [header]
+    for i, r in enumerate(pack.going, 1):
+        data.append([i, r.name] + ([r.age] if pack.bus else []) + [f"{r.parent} ({r.status_label})", r.phone])
+    story.append(_table(data, widths, s))
+    story += [
+        Spacer(1, 3 * mm),
+        Paragraph(f"Руководитель группы: {pack.teacher or '________'}, тел. ____________. "
+                  f"Помощник: {pack.escorts or '________'}, тел. ____________.", s["item"]),
         PageBreak(),
     ]
 
     # --- Приложение 2. Реестр согласий
     story += [
-        Paragraph("Приложение 2 к приказу от «___» ________ 20__ г. № ____", s["appx"]),
+        _appx(2, s),
         Paragraph("Реестр согласий законных представителей", s["h2"]),
-        Paragraph(f"Ответы собраны в ClassGo до {pack.deadline} (МСК).", s["small"]),
+        Paragraph(f"Сведения по состоянию на {pack.generated} МСК (срок приёма ответов — до {pack.deadline}). "
+                  f"Документ {pack.doc_no}. Текст приглашения: SHA-256 {pack.invite_hash[:16]}… "
+                  "(полный хеш — в журнале ClassGo). Время — сервера ClassGo, МСК (UTC+3).", s["small"]),
         Spacer(1, 3 * mm),
     ]
-    data = [["№", "Обучающийся", "Ответ и кто ответил", "Способ", "Дата и время (МСК)", "MAX ID"]]
-    rows = [(r, "Отпускаю") for r in pack.going] + [(r, f"Не сможет: {r.reason or 'без причины'}") for r in pack.not_going]
+    data = [["№", "Обучающийся", "Ответ", "Подписант", "Способ", "Время ответа", "История"]]
+    rows = ([(r, "Отпускаю") for r in pack.going + pack.oral]
+            + [(r, f"Не сможет: {r.reason or 'без причины'}") for r in pack.not_going])
     for i, (r, verdict) in enumerate(rows, 1):
-        data.append([i, r.name, f"{verdict}<br/>{r.signed_by or '—'}", r.method, r.signed_at, r.max_id])
+        signer = f"{r.signer or '—'}<br/>MAX ID {r.max_id}<br/>тел. {r.phone_masked}" if r.max_id != "—" \
+            else f"{r.signer or '—'}"
+        data.append([i, r.name, verdict, signer, r.method, r.signed_at, r.history])
     if not rows:
-        data.append(["", "Ответов пока нет", "", "", "", ""])
-    story.append(_table(data, [8 * mm, 38 * mm, 48 * mm, 28 * mm, 25 * mm, 20 * mm], s))
+        data.append(["", "Ответов пока нет", "", "", "", "", ""])
+    story.append(_table(data, [9 * mm, 28 * mm, 21 * mm, 33 * mm, 27 * mm, 21 * mm, 29 * mm], s))
     if pack.waiting:
-        story += [
-            Spacer(1, 3 * mm),
-            Paragraph("Ещё не ответили: " + ", ".join(r.name for r in pack.waiting)
-                      + ". Для них в пакет добавлены бумажные бланки согласия.", s["small"]),
-        ]
+        story += [Spacer(1, 3 * mm),
+                  Paragraph("Ещё не ответили: " + ", ".join(r.name for r in pack.waiting)
+                            + ". Для них в пакет добавлены бумажные бланки согласия.", s["small"])]
     story += [
         Spacer(1, 3 * mm),
-        Paragraph("Электронные ответы подписаны простой электронной подписью законного представителя "
-                  "(ст. 160 ГК РФ; ст. 6, 9 Федерального закона от 06.04.2011 № 63-ФЗ): лицо определяется по "
-                  "аккаунту MAX и подтверждённому платформой номеру телефона, соглашение о ПЭП принято в ClassGo. "
-                  "Ответы, отмеченные учителем, получены вне MAX (бумага, телефон, лично).", s["small"]),
+        Paragraph("Электронные согласия подписаны простой электронной подписью законных представителей (п. 1 "
+                  "ст. 160 ГК РФ; ч. 2 ст. 6, ст. 9 Федерального закона № 63-ФЗ) в соответствии с Порядком, "
+                  "утверждённым приказом от ________ № ____, и соглашением об электронной подписи (ред. 1.0). "
+                  "Подписант определяется по аккаунту MAX и его номеру телефона, совпадающему с номером в данных "
+                  "школы. Устные отметки учителя не являются письменным согласием.", s["small"]),
+        Spacer(1, 4 * mm),
+        Paragraph(f"Классный руководитель &nbsp; ______________ &nbsp; {pack.teacher or '________________'}", s["item"]),
         PageBreak(),
     ]
 
     # --- Приложение 3. Ведомость инструктажа + памятка
     story += [
-        Paragraph("Приложение 3 к приказу от «___» ________ 20__ г. № ____", s["appx"]),
-        Paragraph("Ведомость проведения целевого инструктажа по правилам безопасности", s["h2"]),
-        Paragraph(f"Мероприятие: {pack.title}, {pack.date_short}, {pack.place}.", s["small"]),
+        _appx(3, s),
+        Paragraph("Ведомость проведения инструктажа по правилам поведения обучающихся на экскурсии", s["h2"]),
+        Paragraph(f"Экскурсия {pack.title}, {pack.date_short}, {pack.place}. Инструктаж по Инструкции № ____, "
+                  "утв. приказом от ________ № ____.", s["small"]),
         Spacer(1, 3 * mm),
     ]
-    data = [["№ п/п", "ФИО инструктируемого", "Класс", "Подпись"]]
+    data = [["№ п/п", "ФИО инструктируемого", "Класс", "С инструкцией ознакомлен(а), подпись"]]
     for i, r in enumerate(pack.going, 1):
         data.append([i, r.name, pack.class_title, ""])
     for _ in range(max(0, 3 - len(pack.going))):
         data.append(["", "", "", ""])
-    story.append(_table(data, [14 * mm, 82 * mm, 20 * mm, 52 * mm], s))
+    story.append(_table(data, [14 * mm, 78 * mm, 18 * mm, 58 * mm], s))
     story += [
         Spacer(1, 4 * mm),
-        Paragraph(f"Присутствовало: ______ чел. Инструктаж провёл(а): {pack.teacher or '________________'} "
-                  "____________ (подпись) &nbsp; Дата: ___________", s["item"]),
+        Paragraph(f"Присутствовало: ______ обучающихся. Дата: ________. Инструктаж провёл(а): классный "
+                  f"руководитель {pack.teacher or '________________'} ______________ (подпись).", s["item"]),
         Spacer(1, 6 * mm),
-        Paragraph("Памятка обучающимся (содержание инструктажа)", s["h2"]),
+        Paragraph("Памятка обучающемуся", s["h2"]),
     ]
     for i, line in enumerate(MEMO, 1):
         story.append(Paragraph(f"{i}. {line}", s["item"]))
 
-    # --- Бумажные бланки для тех, кто ещё не ответил
+    # --- Бумажные бланки
     if pack.waiting:
         story.append(PageBreak())
-        story.append(Paragraph("Бланки согласия для законных представителей, которые ещё не ответили", s["h2"]))
-        story.append(Paragraph("Распечатайте и передайте родителям, которые не пользуются MAX. После возврата бланка "
-                               "отметьте ответ в ClassGo: «Отметить вручную → бумажное согласие».", s["small"]))
+        story.append(Paragraph("Бланки согласия — для тех, кто ещё не ответил или отвечает на бумаге", s["h2"]))
+        story.append(Paragraph("После возврата бланка отметьте ответ в ClassGo: «Отметить вручную → бумажное "
+                               "согласие». Оригинал храните вместе с приказом.", s["small"]))
         for r in pack.waiting:
-            blank = [
+            story.append(KeepTogether([
                 Spacer(1, 6 * mm),
-                Paragraph("<b>Согласие законного представителя на участие обучающегося в выездном мероприятии</b>",
-                          s["item"]),
-                Paragraph(f"Я, ______________________________________________ (ФИО), законный представитель "
-                          f"обучающегося <b>{r.name}</b>, {pack.class_title} класс, даю согласие на его (её) участие "
-                          f"в выездном мероприятии {pack.title} {pack.date_short} ({pack.place}). Сбор в "
-                          f"{pack.gathering} {pack.meeting_point}, возвращение к {pack.returning}. "
-                          f"Руководитель группы — {pack.teacher or '________________'}.", s["item"]),
-                Paragraph("Контактный телефон: ____________________ &nbsp;&nbsp; "
-                          "Подпись: ____________ &nbsp;&nbsp; Дата: ____________", s["item"]),
-                Paragraph("— — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —", s["draft"]),
-            ]
-            story.append(KeepTogether(blank))
+                Paragraph("<b>Согласие на участие обучающегося в экскурсии</b>", s["item"]),
+                Paragraph(f"Я, ______________________________________ (ФИО), ☐ мать ☐ отец ☐ опекун (попечитель) "
+                          f"обучающегося {pack.class_title} класса <b>{r.name}</b>, даю согласие на участие в "
+                          f"экскурсии {pack.title} {pack.date_short} с {pack.gathering} до {pack.returning} "
+                          f"(сбор {pack.meeting_point}; передвижение: {pack.transport}; руководитель — "
+                          f"{pack.teacher or '________________'}).", s["item"]),
+                Paragraph("Билет семья при желании покупает сама; школа деньги не собирает. После возвращения "
+                          "в школу ребёнок ☐ идёт домой самостоятельно ☐ его встретит ____________________. "
+                          "С правилами поведения на экскурсии ознакомлен(а).", s["item"]),
+                Paragraph("Телефон ______________ &nbsp; Подпись ______________ / ______________ &nbsp; "
+                          "Дата ____________", s["item"]),
+                Paragraph("✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — —", s["center"]),
+            ]))
+
+    # --- Образец Порядка для администрации
+    story.append(PageBreak())
+    story.append(Paragraph("Для администрации школы: образец пунктов Порядка получения согласий", s["h2"]))
+    story.append(Paragraph("Включается в Положение об организации экскурсий или утверждается отдельным "
+                           "приказом. Без такого Порядка ответ кнопкой не признаётся равнозначным подписи "
+                           "(ч. 2 ст. 6 63-ФЗ).", s["small"]))
+    for i, line in enumerate(AGREEMENT_TEMPLATE, 1):
+        story.append(Paragraph(f"{i}. {line}", s["item"]))
 
     def footer(canvas, doc_):
         font, _ = _fonts()
         canvas.saveState()
-        canvas.setFont(font, 8)
+        canvas.setFont(font, 7.5)
         canvas.setFillColor(colors.grey)
-        canvas.drawString(25 * mm, 8 * mm, f"ClassGo · {pack.class_title} · {pack.title} · {pack.date_short}")
-        canvas.drawRightString(A4[0] - 15 * mm, 8 * mm, f"стр. {doc_.page}")
+        canvas.drawString(25 * mm, 8 * mm, "Содержит персональные данные. Не пересылать в общие чаты.")
+        canvas.drawRightString(A4[0] - 15 * mm, 8 * mm, f"{pack.doc_no} · стр. {doc_.page}")
         canvas.restoreState()
 
     doc.build(story, onFirstPage=footer, onLaterPages=footer)
@@ -428,72 +585,89 @@ def build_order_docx(session: Session, excursion: Excursion) -> bytes:
     normal.font.name = "Times New Roman"
     normal.font.size = Pt(12)
 
-    def centered(text: str, bold: bool = False, size: int | None = None):
+    def para(text: str, *, bold: bool = False, align=None, size: int | None = None):
         p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        if align is not None:
+            p.alignment = align
         run = p.add_run(text)
         run.bold = bold
         if size:
             run.font.size = Pt(size)
         return p
 
-    centered(pack.school, bold=True)
-    centered("ПРИКАЗ", bold=True, size=14)
-    centered("№ ________ от «___» ____________ 20__ г.")
-    centered(f"Об организации выездного экскурсионного мероприятия обучающихся {pack.class_title} класса", bold=True)
-    doc.add_paragraph(PREAMBLE.format(basis=pack.basis) + ",")
-    doc.add_paragraph().add_run("ПРИКАЗЫВАЮ:").bold = True
+    para("ПРОЕКТ", bold=True, align=WD_ALIGN_PARAGRAPH.RIGHT)
+    para(pack.school, bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+    para("ПРИКАЗ", bold=True, align=WD_ALIGN_PARAGRAPH.CENTER, size=14)
+    para("«___» ____________ 20__ г.        г. Казань        № ________", align=WD_ALIGN_PARAGRAPH.CENTER)
+    para(_title(pack), bold=True, align=WD_ALIGN_PARAGRAPH.CENTER)
+    para(_preamble(pack), align=WD_ALIGN_PARAGRAPH.JUSTIFY)
+    para("ПРИКАЗЫВАЮ:", bold=True)
     for i, text in enumerate(_order_points(pack), 1):
-        doc.add_paragraph(f"{i}. {text}")
-    doc.add_paragraph("\nДиректор ______________________ / ______________________")
-    doc.add_paragraph("С приказом ознакомлены:")
-    doc.add_paragraph(f"Руководитель группы {pack.teacher} ______________________")
-    doc.add_paragraph("Сопровождающий ______________________ / ______________________")
+        para(f"{i}. {text}", align=WD_ALIGN_PARAGRAPH.JUSTIFY)
+    para("\nДиректор ______________ И. О. Фамилия")
+    para("С приказом ознакомлены:")
+    para(f"______________ {pack.teacher or '________________'}  «___» ________ 20__ г.")
+    para(f"______________ {pack.escorts or '________________'}  «___» ________ 20__ г.")
+    para("______________ ________________ (зам. директора по ВР)  «___» ________ 20__ г.")
+    para(f"Исп.: {pack.teacher}")
 
     _page_break(doc)
-    doc.add_paragraph("Приложение 1 к приказу от «___» ________ 20__ г. № ____").alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    doc.add_paragraph().add_run(f"Список группы обучающихся {pack.class_title} класса").bold = True
-    doc.add_paragraph(f"Мероприятие: {pack.title}, {pack.date_short}. Место: {pack.place}.")
-    _docx_table(doc, ["№", "ФИО обучающегося", "Дата рождения", "Законный представитель", "Телефон"],
-                [[i, r.name, r.birth, r.parent, r.phone] for i, r in enumerate(pack.going, 1)])
-    doc.add_paragraph(f"Всего обучающихся: {len(pack.going)}. Руководитель группы: {pack.teacher}. "
-                      f"Сопровождающие: {pack.escorts or '________'}.")
+    para("Приложение 1 к приказу от «___» ________ 20__ г. № ____", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    para(f"Список обучающихся {pack.class_title} класса — участников экскурсии", bold=True)
+    _docx_table(doc, ["№", "ФИО обучающегося", "Класс"],
+                [[i, r.name, pack.class_title] for i, r in enumerate(pack.going, 1)])
+    para(f"Всего: {len(pack.going)} обучающихся. Руководитель группы: {pack.teacher}. "
+         f"Помощник руководителя: {pack.escorts or '________'}.")
 
     _page_break(doc)
-    doc.add_paragraph("Приложение 2 к приказу от «___» ________ 20__ г. № ____").alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    doc.add_paragraph().add_run("Реестр согласий законных представителей").bold = True
-    rows = [(r, "Отпускаю") for r in pack.going] + [(r, f"Не сможет: {r.reason or 'без причины'}") for r in pack.not_going]
-    _docx_table(doc, ["№", "Обучающийся", "Ответ", "Кто ответил", "Способ", "Дата и время (МСК)", "MAX ID"],
-                [[i, r.name, verdict, r.signed_by or "—", r.method, r.signed_at, r.max_id]
+    para("Рабочий список группы с контактами законных представителей", bold=True)
+    para("Для руководителя группы на время экскурсии. Не приобщается к приказу; после экскурсии уничтожить.")
+    _docx_table(doc, ["№", "ФИО обучающегося", "Законный представитель", "Телефон"],
+                [[i, r.name, f"{r.parent} ({r.status_label})", r.phone] for i, r in enumerate(pack.going, 1)])
+
+    _page_break(doc)
+    para("Приложение 2 к приказу от «___» ________ 20__ г. № ____", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    para("Реестр согласий законных представителей", bold=True)
+    para(f"Сведения по состоянию на {pack.generated} МСК (срок приёма ответов — до {pack.deadline}). "
+         f"Документ {pack.doc_no}. Текст приглашения: SHA-256 {pack.invite_hash}.")
+    rows = ([(r, "Отпускаю") for r in pack.going + pack.oral]
+            + [(r, f"Не сможет: {r.reason or 'без причины'}") for r in pack.not_going])
+    _docx_table(doc, ["№", "Обучающийся", "Ответ", "Подписант", "MAX ID", "Способ", "Время ответа (МСК)", "История"],
+                [[i, r.name, verdict, r.signer or "—", r.max_id, r.method, r.signed_at, r.history]
                  for i, (r, verdict) in enumerate(rows, 1)])
     if pack.waiting:
-        doc.add_paragraph("Ещё не ответили: " + ", ".join(r.name for r in pack.waiting) + ".")
-    doc.add_paragraph("Электронные ответы подписаны простой электронной подписью законного представителя "
-                      "(ст. 160 ГК РФ; ст. 6, 9 Федерального закона № 63-ФЗ).")
+        para("Ещё не ответили: " + ", ".join(r.name for r in pack.waiting) + ".")
+    para("Электронные согласия подписаны простой электронной подписью законных представителей (п. 1 ст. 160 "
+         "ГК РФ; ч. 2 ст. 6, ст. 9 Федерального закона № 63-ФЗ) в соответствии с Порядком, утверждённым "
+         "приказом от ________ № ____. Устные отметки учителя не являются письменным согласием.")
 
     _page_break(doc)
-    doc.add_paragraph("Приложение 3 к приказу от «___» ________ 20__ г. № ____").alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    doc.add_paragraph().add_run("Ведомость проведения целевого инструктажа по правилам безопасности").bold = True
-    _docx_table(doc, ["№ п/п", "ФИО инструктируемого", "Класс", "Подпись"],
+    para("Приложение 3 к приказу от «___» ________ 20__ г. № ____", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    para("Ведомость проведения инструктажа по правилам поведения обучающихся на экскурсии", bold=True)
+    _docx_table(doc, ["№ п/п", "ФИО инструктируемого", "Класс", "С инструкцией ознакомлен(а), подпись"],
                 [[i, r.name, pack.class_title, ""] for i, r in enumerate(pack.going, 1)])
-    doc.add_paragraph(f"Присутствовало: ______ чел. Инструктаж провёл(а): {pack.teacher} ____________ "
-                      "Дата: ___________")
-    doc.add_paragraph().add_run("Памятка обучающимся").bold = True
+    para(f"Присутствовало: ______ обучающихся. Дата: ________. Инструктаж провёл(а): {pack.teacher} ________")
+    para("Памятка обучающемуся", bold=True)
     for i, line in enumerate(MEMO, 1):
-        doc.add_paragraph(f"{i}. {line}")
+        para(f"{i}. {line}")
 
     if pack.waiting:
         _page_break(doc)
-        doc.add_paragraph().add_run("Бланки согласия для тех, кто ещё не ответил").bold = True
+        para("Бланки согласия — для тех, кто ещё не ответил или отвечает на бумаге", bold=True)
         for r in pack.waiting:
-            doc.add_paragraph().add_run(
-                "Согласие законного представителя на участие обучающегося в выездном мероприятии").bold = True
-            doc.add_paragraph(
-                f"Я, ______________________________ (ФИО), законный представитель обучающегося {r.name}, "
-                f"{pack.class_title} класс, даю согласие на его (её) участие в выездном мероприятии {pack.title} "
-                f"{pack.date_short} ({pack.place}). Сбор в {pack.gathering} {pack.meeting_point}, возвращение к "
-                f"{pack.returning}.")
-            doc.add_paragraph("Телефон: ______________  Подпись: ____________  Дата: ____________\n")
+            para("Согласие на участие обучающегося в экскурсии", bold=True)
+            para(f"Я, ______________________________ (ФИО), ☐ мать ☐ отец ☐ опекун (попечитель) обучающегося "
+                 f"{pack.class_title} класса {r.name}, даю согласие на участие в экскурсии {pack.title} "
+                 f"{pack.date_short} с {pack.gathering} до {pack.returning} (сбор {pack.meeting_point}; "
+                 f"передвижение: {pack.transport}; руководитель — {pack.teacher}).")
+            para("Билет семья при желании покупает сама; школа деньги не собирает. После возвращения ребёнок "
+                 "☐ идёт домой самостоятельно ☐ его встретит ______________.")
+            para("Телефон ______________  Подпись ______________ / ______________  Дата ____________\n")
+
+    _page_break(doc)
+    para("Для администрации школы: образец пунктов Порядка получения согласий", bold=True)
+    for i, line in enumerate(AGREEMENT_TEMPLATE, 1):
+        para(f"{i}. {line}")
 
     buf = io.BytesIO()
     doc.save(buf)
