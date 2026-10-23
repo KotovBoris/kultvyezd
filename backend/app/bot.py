@@ -51,6 +51,15 @@ def human_deadline(value: datetime | None) -> str:
     return f"{value.day} {MONTHS[value.month - 1]}, {value:%H:%M}"
 
 
+def is_female(full_name: str) -> bool:
+    """Пол по отчеству («-овна», «-евна», «-ична», «-кызы»), иначе по фамилии."""
+    parts = full_name.split()
+    if len(parts) >= 3:
+        patronymic = parts[2].lower()
+        return patronymic.endswith(("на", "кызы", "гызы"))
+    return bool(parts) and parts[0].lower().endswith(("ова", "ева", "ина", "ая", "ына"))
+
+
 def first_name(full_name: str) -> str:
     """«Сафин Тимур Ренатович» → «Тимур» (ФИО в школьных списках начинается с фамилии)."""
     parts = full_name.split()
@@ -193,7 +202,7 @@ class BotService:
                 chat_id, user_id,
                 "Как это работает:\n"
                 "1. Классный руководитель выбирает событие и отправляет приглашение.\n"
-                "2. Родитель нажимает «Отпускаю» или «Не сможет» — прямо в этом чате.\n"
+                "2. Родитель нажимает «Да, пойдёт» или «Нет» — прямо в этом чате.\n"
                 "3. Учитель видит, кто едет, и получает готовый приказ и списки.\n\n"
                 "/trips — выезды вашего ребёнка\n"
                 "/mute — не присылать напоминания, /unmute — включить снова",
@@ -526,12 +535,17 @@ class BotService:
                 name = first_name(student.full_name)
                 if kind == "departed":
                     if part.present is False:
-                        text = (f"{quoted(excursion.title)}: группа выехала в {now}, но {name} не пришёл(а) на сбор. "
-                                "Если всё в порядке — ответьте классному руководителю.")
-                    else:
+                        came = "пришла" if is_female(student.full_name) else "пришёл"
+                        text = (f"{quoted(excursion.title)}: группа выехала в {now}, а {name} не {came} на сбор. "
+                                "Пожалуйста, свяжитесь с классным руководителем.")
+                    elif part.present is True:
                         text = f"{quoted(excursion.title)}: группа выехала в {now}. {name} с классом."
+                    else:
+                        text = f"{quoted(excursion.title)}: группа выехала в {now}."
                 else:
-                    text = f"{quoted(excursion.title)}: группа вернулась к школе в {now}. Можно встречать {name}."
+                    if part.present is False:
+                        continue
+                    text = f"{quoted(excursion.title)}: группа вернулась в {now}. Можно встречать {name}."
                 messages.append((parent.max_user_id, text))
         sent = 0
         for user_id, text in messages:
@@ -654,6 +668,8 @@ class BotService:
         return delivered
 
     async def remind(self, excursion: Excursion, session: Session) -> tuple[int, list[str]]:
+        if excursion.cancelled:
+            return 0, []
         targets = services.remind_targets(session, excursion)
         delivered: list[str] = []
         for t in targets:
@@ -686,8 +702,8 @@ class BotService:
         return self._consent_keyboard_raw(excursion.id, student_id)
 
     def _consent_keyboard_raw(self, excursion_id: int, student_id: int) -> list[dict]:
-        approve = callback_button("Отпускаю ребёнка", f"consent:{excursion_id}:{student_id}:APPROVED")
-        reject = callback_button("Не сможет поехать", f"consent:{excursion_id}:{student_id}:REJECTED")
+        approve = callback_button("✅ Да, пойдёт", f"consent:{excursion_id}:{student_id}:APPROVED")
+        reject = callback_button("Нет, не пойдёт", f"consent:{excursion_id}:{student_id}:REJECTED")
         return [inline_keyboard([[approve], [reject]])]
 
     async def publish_to_chat(self, excursion: Excursion, chat_id: int) -> dict | None:

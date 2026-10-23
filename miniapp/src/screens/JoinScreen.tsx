@@ -12,7 +12,6 @@ export default function JoinScreen({ code }: { code: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [manualPhone, setManualPhone] = useState("");
   const inside = isInsideMax();
 
   useEffect(() => {
@@ -23,22 +22,24 @@ export default function JoinScreen({ code }: { code: string }) {
     setBusy(true);
     setProblem(null);
     try {
-      let phone = manualPhone;
-      let authDate: string | undefined;
-      let hash: string | undefined;
-      if (inside) {
+      let payload: { code: string; phone: string; auth_date?: string; hash?: string } = { code, phone: "" };
+      if (!info?.is_demo) {
         const contact = await requestContact();
         if (!contact) {
           setProblem("Номер не получен. Нажмите кнопку ещё раз и разрешите MAX передать номер.");
           return;
         }
-        ({ phone, authDate, hash } = contact);
+        payload = { code, phone: contact.phone, auth_date: contact.authDate, hash: contact.hash };
       }
-      const r = await api.join({ code, phone, auth_date: authDate, hash });
+      const r = await api.join(payload);
       if (r.status === "linked") {
         haptic.ok();
         await refreshMe("parent");
-        toast(`Готово! ${r.children.map(firstName).join(", ")} — теперь приглашения будут приходить вам.`);
+        toast(
+          info?.is_demo
+            ? `Вы родитель ученика демо-класса: ${r.children.join(", ")}. Приглашение уже в чате с ботом.`
+            : `Готово! ${r.children.map(firstName).join(", ")} — теперь приглашения будут приходить вам.`,
+        );
         resetTo({ name: "home" });
       } else {
         setProblem(r.message);
@@ -61,32 +62,53 @@ export default function JoinScreen({ code }: { code: string }) {
   }
   if (!info) return <Page><Loader /></Page>;
 
+  const canConfirm = info.is_demo || inside;
+
   return (
     <Page
       bottom={
-        <Button size="large" stretched loading={busy} iconBefore={<Icon name="shield" size={20} />}
-          disabled={!inside && manualPhone.replace(/\D/g, "").length < 10} onClick={() => void confirm()}>
-          Подтвердить номер телефона
-        </Button>
+        canConfirm ? (
+          <Button size="large" stretched loading={busy} iconBefore={<Icon name={info.is_demo ? "check" : "shield"} size={20} />}
+            onClick={() => void confirm()}>
+            {info.is_demo ? "Стать родителем ученика" : "Подтвердить номер телефона"}
+          </Button>
+        ) : undefined
       }
     >
-      <Hero overline="Приглашение от классного руководителя" title={`Класс ${info.class_title}`} subtitle={info.school_name} />
+      <Hero
+        overline={info.is_demo ? "Живое демо ClassGo" : "Приглашение от классного руководителя"}
+        title={`Класс ${info.class_title}`}
+        subtitle={info.school_name}
+      />
       <Card className="cg-join">
-        <span className="cg-join-icon"><Icon name="school" size={26} /></span>
-        <p>
-          <b>{info.teacher_name || "Классный руководитель"}</b> приглашает родителей {info.class_title} в ClassGo:
-          здесь приходят приглашения на экскурсии и выезды, ответить можно одной кнопкой.
-        </p>
-        <p className="cg-muted">
-          В списке класса {info.students_count} {plural(info.students_count, "ученик", "ученика", "учеников")}. Нажмите
-          кнопку — MAX передаст ваш номер, и мы найдём вашего ребёнка. Никаких паролей.
-        </p>
-        {!inside && (
-          <input className="cg-input" inputMode="tel" placeholder="+7 900 123-45-67"
-            value={manualPhone} onChange={(e) => setManualPhone(e.target.value)} />
+        <span className="cg-join-icon"><Icon name={info.is_demo ? "spark" : "school"} size={26} /></span>
+        {info.is_demo ? (
+          <>
+            <p>
+              Это демо-класс <b>{info.teacher_name}</b>. Нажмите кнопку — вы станете родителем одного из учеников, и
+              приглашение на выезд сразу придёт вам в чат с ботом.
+            </p>
+            <p className="cg-muted">Ответьте «Да» — и у учителя на экране появится ваше имя. Телефон не нужен.</p>
+          </>
+        ) : (
+          <>
+            <p>
+              <b>{info.teacher_name || "Классный руководитель"}</b> приглашает родителей {info.class_title} в ClassGo:
+              здесь приходят приглашения на экскурсии, ответить можно одной кнопкой.
+            </p>
+            <p className="cg-muted">
+              В списке класса {info.students_count} {plural(info.students_count, "ученик", "ученика", "учеников")}.
+              Нажмите кнопку — MAX передаст ваш номер с подписью платформы, и мы найдём вашего ребёнка.
+            </p>
+          </>
+        )}
+        {!canConfirm && (
+          <Notice tone="info" icon="info">
+            Подключение работает внутри MAX: откройте эту ссылку в приложении MAX.
+          </Notice>
         )}
       </Card>
-      {problem && <Notice tone="warn" icon="info" title="Не нашли ваш номер">{problem}</Notice>}
+      {problem && <Notice tone="warn" icon="info" title="Не получилось подключиться">{problem}</Notice>}
     </Page>
   );
 }

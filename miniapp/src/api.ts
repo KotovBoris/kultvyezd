@@ -98,6 +98,10 @@ export interface Excursion {
   responsible_teacher: string;
   meeting_point: string;
   escorts: string;
+  transport: string;
+  departed_at: string | null;
+  returned_at: string | null;
+  cancelled: boolean;
   class_title: string;
   is_demo: boolean;
   stats: TripStats | null;
@@ -119,6 +123,7 @@ export interface ParticipantRow {
   signed_by_max_user_id: number | null;
   signed_source: string | null;
   signed_at: string | null;
+  present: boolean | null;
   rejection_reason: string | null;
   ticket_number: string | null;
 }
@@ -161,6 +166,11 @@ export interface ParentTrip {
   rejection_reason: string | null;
   signed_by_name: string | null;
   signed_at: string | null;
+  /** true — можно «Пушкинской картой», false — нельзя, null — возраст неизвестен */
+  pushkin_ok: boolean | null;
+  can_change: boolean;
+  started: boolean;
+  cancelled: boolean;
 }
 
 export interface ParentChild {
@@ -169,6 +179,7 @@ export interface ParentChild {
   class_title: string;
   school_name: string;
   teacher_name: string;
+  teacher_phone: string;
   is_demo: boolean;
   parent_name: string;
   parent_role: string;
@@ -196,6 +207,7 @@ export interface Invite {
 
 export interface JoinInfo {
   code: string;
+  is_demo: boolean;
   class_title: string;
   school_name: string;
   teacher_name: string;
@@ -324,4 +336,24 @@ export const api = {
     post<JoinResult>("/api/v1/parent/join", payload),
   setNotifications: (userId: number, enabled: boolean) =>
     post<{ ok: boolean }>("/api/v1/parent/notifications", { max_user_id: userId, enabled }),
+  revoke: () => post<{ ok: boolean; unlinked: number }>("/api/v1/parent/revoke"),
+  secondInvite: (studentId: number) =>
+    post<{ code: string; app_link: string; bot_link: string; student_name: string }>(
+      "/api/v1/parent/second-invite",
+      { student_id: studentId },
+    ),
+  pairInfo: (code: string) =>
+    req<{ code: string; student_name: string; class_title: string; invited_by: string }>(
+      `/api/v1/parent/pair/${encodeURIComponent(code)}`,
+    ),
+  pair: (code: string) => post<JoinResult>("/api/v1/parent/pair", { code }),
+
+  attendance: (excursionId: number, studentId: number, present: boolean | null) =>
+    post<{ ok: boolean }>(`/api/v1/excursions/${excursionId}/attendance`, { student_id: studentId, present }),
+  milestone: (excursionId: number, kind: "departed" | "returned") =>
+    post<{ kind: string; at: string; notified: number; absent: string[] }>(
+      `/api/v1/excursions/${excursionId}/milestone`,
+      { kind },
+    ),
+  cancelTrip: (excursionId: number) => post<{ ok: boolean; notified: number }>(`/api/v1/excursions/${excursionId}/cancel`),
 };

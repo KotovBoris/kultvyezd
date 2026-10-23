@@ -12,6 +12,7 @@ import NewClass from "./screens/NewClass";
 import ParentHome from "./screens/ParentHome";
 import ParentTrip from "./screens/ParentTrip";
 import JoinScreen from "./screens/JoinScreen";
+import PairScreen from "./screens/PairScreen";
 
 function pickRole(me: Me): Role | null {
   if (me.role === "teacher" && me.is_teacher) return "teacher";
@@ -64,6 +65,9 @@ async function routeFromStartParam(me: Me): Promise<{ role: Role | null; stack: 
     await startDemo();
     return { role: "teacher", stack: [{ name: "home" }] };
   }
+  if (param.startsWith("pair_")) {
+    return { role: "parent", stack: [{ name: "home" }, { name: "pair", code: param.slice(5) }] };
+  }
   if (param.startsWith("join_")) {
     return { role: "parent", stack: [{ name: "home" }, { name: "join", code: param.slice(5) }] };
   }
@@ -93,6 +97,9 @@ export default function App() {
   const boot = useCallback(async () => {
     setBootError(null);
     setBooting(true);
+    // Сразу говорим MAX, что приложение готово: он убирает свой экран загрузки,
+    // и пользователь видит наш индикатор вместо пустого окна.
+    ready();
     try {
       const me = await api.me();
       setState({ me, role: pickRole(me) });
@@ -102,7 +109,6 @@ export default function App() {
       setBootError(errorText(e));
     } finally {
       setBooting(false);
-      ready();
     }
   }, []);
 
@@ -189,6 +195,8 @@ function Screen({ route, role }: { route: Route; role: Role | null }) {
       return <ParentTrip excursionId={route.excursionId} studentId={route.studentId} />;
     case "join":
       return <JoinScreen code={route.code} />;
+    case "pair":
+      return <PairScreen code={route.code} />;
     default:
       if (role === "teacher") return <TeacherHome />;
       if (role === "parent") return <ParentHome />;

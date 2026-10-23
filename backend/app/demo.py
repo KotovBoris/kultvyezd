@@ -88,6 +88,18 @@ def _pick_event(session: Session) -> CultureEvent | None:
     return (paid_pushkin or events or [None])[0]
 
 
+def _plausible_answer_time(now: datetime) -> datetime:
+    """Время «уже пришедшего» ответа: недавно и не ночью по Москве (ответ в 03:46 выглядит фальшиво)."""
+    at = now - timedelta(minutes=random.randint(15, 240))
+    hour = (at + services.MSK).hour
+    if hour < 7 or hour >= 23:
+        evening = (at + services.MSK).replace(hour=19, minute=0, second=0, microsecond=0)
+        if hour < 7:
+            evening -= timedelta(days=1)
+        at = evening - services.MSK + timedelta(minutes=random.randint(0, 150))
+    return at
+
+
 def create_sandbox(session: Session, user_id: int, user_name: str = "") -> dict:
     """Создаёт демо-класс пользователя (идемпотентно) и пример выезда в процессе сбора."""
     existing = sandbox_class(session, user_id)
@@ -163,7 +175,7 @@ def _create_sample_excursion(session: Session, klass: SchoolClass) -> Excursion 
             part.signed_by_name = parent.full_name if parent else None
             part.signed_by_phone = parent.phone_number if parent else None
             part.signed_source = "bot"
-            part.signed_at = now - timedelta(hours=random.randint(1, 20))
+            part.signed_at = _plausible_answer_time(now)
             if kind == "REJECT":
                 part.consent_status = ConsentStatus.REJECTED
                 part.rejection_reason = "Семейные обстоятельства"

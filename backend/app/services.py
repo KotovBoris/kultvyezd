@@ -129,6 +129,9 @@ def apply_consent(
     if participant is None:
         raise ValueError("Участник не найден в этом выезде")
 
+    if excursion.cancelled:
+        return participant, False, "Выезд отменён — отвечать не нужно."
+
     if participant.consent_status != ConsentStatus.PENDING:
         existing_by = participant.signed_by_name or "законный представитель"
         when = msk_stamp(participant.signed_at) or "ранее"
@@ -184,7 +187,7 @@ def trip_started(excursion: Excursion, now: datetime | None = None) -> bool:
 def can_change_answer(session: Session, participant: ExcursionParticipant, excursion: Excursion,
                       user_id: int | None, *, as_teacher: bool = False, now: datetime | None = None) -> bool:
     """Ответ меняет учитель (бумажные отметки) или родитель этого ребёнка — до начала выезда."""
-    if participant.consent_status == ConsentStatus.PENDING:
+    if participant.consent_status == ConsentStatus.PENDING or excursion.cancelled:
         return False
     if as_teacher:
         return True
@@ -512,6 +515,7 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
                     "pushkin_ok": pushkin_for(student, exc),
                     "can_change": can_change_answer(session, p, exc, max_user_id),
                     "started": trip_started(exc),
+                    "cancelled": exc.cancelled,
                     "status": exc.status,
                     "traffic_light": compute_traffic_light(p).value,
                     "consent_status": p.consent_status.value,
@@ -521,7 +525,7 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
                     "signed_at": p.signed_at,
                 }
             )
-        items.sort(key=lambda i: (i["consent_status"] != "PENDING", str(i["event_date"] or "")))
+        items.sort(key=lambda i: (i["cancelled"], i["consent_status"] != "PENDING", str(i["event_date"] or "")))
         result.append(
             {
                 "student_id": student.id,
@@ -539,17 +543,3 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
             }
         )
     return result
-
-
-def reminder_text(excursion: Excursion, student_name: str, tl: TrafficLight) -> str:
-    if tl == TrafficLight.GREY:
-        return (
-            f"Напоминание по выезду «{excursion.title}».\n"
-            f"{student_name}: участие ещё не подтверждено.\n"
-            f"Нажмите «Отпускаю ребёнка» или «Не сможет поехать»."
-        )
-    return (
-        f"Напоминание по выезду «{excursion.title}».\n"
-        f"Согласие по {student_name} подписано, билет пока не отмечен.\n"
-        f"Купите билет по ссылке в карточке и нажмите «Билет куплен»."
-    )

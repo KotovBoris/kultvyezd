@@ -7,8 +7,13 @@ import { errorText, replace, toast } from "../store";
 import { Card, Chip, Empty, Field, Hero, Icon, Loader, Notice, Page, Section, Tag } from "../ui";
 
 type Filter = "all" | "free" | "pushkin";
+type Transport = "walk" | "bus" | "other";
 
 const AGE_ORDER = ["0+", "6+", "12+", "16+", "18+"];
+const TRANSPORT_LABEL: Record<Exclude<Transport, "other">, string> = {
+  walk: "пешком и на общественном транспорте",
+  bus: "заказной автобус (организованная перевозка)",
+};
 
 /** Какой возрастной ценз подходит классу: 1–4 → до 6+, 5–8 → до 12+, 9–11 → до 16+. */
 function maxAgeForGrade(grade: string): string {
@@ -23,6 +28,17 @@ function gradeOf(klass: SchoolClass | undefined): string {
   return klass ? klass.title.replace(/\D/g, "") : "";
 }
 
+/** За N рабочих дней до даты (суббота и воскресенье не считаются). */
+function workdaysBefore(day: Date, n: number): Date {
+  let d = new Date(day);
+  let left = n;
+  while (left > 0) {
+    d = addDays(d, -1);
+    if (d.getDay() !== 0 && d.getDay() !== 6) left -= 1;
+  }
+  return d;
+}
+
 export default function NewTrip({ classId }: { classId?: number }) {
   const [step, setStep] = useState(1);
   const [classes, setClasses] = useState<SchoolClass[] | null>(null);
@@ -32,11 +48,19 @@ export default function NewTrip({ classId }: { classId?: number }) {
   const [byAge, setByAge] = useState(true);
   const [query, setQuery] = useState("");
   const [event, setEvent] = useState<CultureEvent | null>(null);
+  const [custom, setCustom] = useState(false);
+  const [title, setTitle] = useState("");
+  const [venue, setVenue] = useState("");
+  const [address, setAddress] = useState("");
+  const [price, setPrice] = useState("");
+  const [ticketUrl, setTicketUrl] = useState("");
   const [date, setDate] = useState("");
   const [gathering, setGathering] = useState("09:00");
   const [returning, setReturning] = useState("13:00");
   const [meeting, setMeeting] = useState("у главного входа школы");
   const [escorts, setEscorts] = useState("");
+  const [transport, setTransport] = useState<Transport>("walk");
+  const [transportOther, setTransportOther] = useState("");
   const [deadlineDate, setDeadlineDate] = useState("");
   const [deadlineTime, setDeadlineTime] = useState("18:00");
   const [busy, setBusy] = useState(false);
@@ -54,9 +78,9 @@ export default function NewTrip({ classId }: { classId?: number }) {
 
   // Пока мастер не закончен, случайное закрытие спросит подтверждение.
   useEffect(() => {
-    setClosingConfirmation(step > 1 || event !== null);
+    setClosingConfirmation(step > 1 || event !== null || custom);
     return () => setClosingConfirmation(false);
-  }, [step, event]);
+  }, [step, event, custom]);
 
   const klass = classes?.find((c) => c.id === selectedClass);
   const maxAge = maxAgeForGrade(gradeOf(klass));
@@ -70,15 +94,29 @@ export default function NewTrip({ classId }: { classId?: number }) {
       .sort((a, b) => (a.event_date ?? "").localeCompare(b.event_date ?? ""));
   }, [events, filter, byAge, query, maxAge]);
 
+  function defaultDeadline(day: string) {
+    const eventDay = parseDay(day) ?? addDays(new Date(), 7);
+    const dl = workdaysBefore(eventDay, 3);
+    const tomorrow = addDays(new Date(), 1);
+    setDeadlineDate(isoDate(dl > tomorrow ? dl : tomorrow));
+  }
+
   function pick(e: CultureEvent) {
     haptic.tap();
+    setCustom(false);
     setEvent(e);
     const day = e.event_date ?? isoDate(addDays(new Date(), 7));
     setDate(day);
-    const eventDay = parseDay(day) ?? addDays(new Date(), 7);
-    const dl = addDays(eventDay, -2);
-    const tomorrow = addDays(new Date(), 1);
-    setDeadlineDate(isoDate(dl > tomorrow ? dl : tomorrow));
+    defaultDeadline(day);
+  }
+
+  function pickCustom() {
+    haptic.tap();
+    setEvent(null);
+    setCustom(true);
+    const day = isoDate(addDays(new Date(), 10));
+    setDate(day);
+    defaultDeadline(day);
   }
 
   const connected = klass ? klass.parents_connected : 0;
@@ -86,23 +124,51 @@ export default function NewTrip({ classId }: { classId?: number }) {
   const todayIso = isoDate(new Date());
   const deadlineOk = deadlineDate >= todayIso && (!date || deadlineDate <= date);
   const timesOk = !gathering || !returning || returning > gathering;
+  const eventDay = parseDay(date);
+  const tight = Boolean(eventDay && deadlineDate && deadlineDate > isoDate(workdaysBefore(eventDay, 2)));
+  const customOk = !custom || Boolean(title.trim() && venue.trim());
+  const transportText = transport === "other" ? transportOther.trim() : TRANSPORT_LABEL[transport];
+  const step2Ok = Boolean(date && deadlineOk && timesOk && customOk && escorts.trim() && transportText);
+
+  const shown = custom
+    ? {
+        title: title.trim() || "Своё мероприятие",
+        venue: venue.trim(),
+        price: Number(price.replace(",", ".")) || 0,
+      }
+    : event
+      ? { title: event.title, venue: event.venue, price: event.price }
+      : null;
 
   async function submit() {
-    if (!event || !klass) return;
+    if (!klass || !shown) return;
     setBusy(true);
     setError(null);
     try {
       const deadline = new Date(`${deadlineDate}T${deadlineTime || "18:00"}:00`);
-      const trip = await api.createTrip({
+      const common = {
         class_id: klass.id,
-        culture_event_id: event.id,
         event_date: date,
         gathering_time: gathering,
         return_time: returning,
         meeting_point: meeting.trim() || "у главного входа школы",
         escorts: escorts.trim(),
+        transport: transportText,
         deadline: deadline.toISOString(),
-      });
+      };
+      const trip = await api.createTrip(
+        custom
+          ? {
+              ...common,
+              title: shown.title,
+              location_name: venue.trim(),
+              address: address.trim(),
+              ticket_price: shown.price,
+              ticket_sale_url: ticketUrl.trim(),
+              is_pushkin_card: false,
+            }
+          : { ...common, culture_event_id: event!.id },
+      );
       setClosingConfirmation(false);
       haptic.ok();
       toast(
@@ -130,13 +196,13 @@ export default function NewTrip({ classId }: { classId?: number }) {
 
   const bottom =
     step === 1 ? (
-      <Button size="large" stretched disabled={!event || !klass} onClick={() => setStep(2)}>
-        {event ? "Далее" : "Выберите событие"}
+      <Button size="large" stretched disabled={!(event || custom) || !klass} onClick={() => setStep(2)}>
+        {event || custom ? "Далее" : "Выберите, куда идём"}
       </Button>
     ) : step === 2 ? (
       <div className="cg-bottom-pair">
         <Button size="large" variant="secondary" onClick={() => setStep(1)}>Назад</Button>
-        <Button size="large" stretched disabled={!date || !deadlineOk || !timesOk} onClick={() => setStep(3)}>
+        <Button size="large" stretched disabled={!step2Ok} onClick={() => setStep(3)}>
           Далее
         </Button>
       </div>
@@ -174,7 +240,18 @@ export default function NewTrip({ classId }: { classId?: number }) {
               </div>
             </Section>
           )}
-          <Section>
+          <Card className={`cg-event cg-custom ${custom ? "selected" : ""}`} onClick={pickCustom}>
+            <div className="cg-event-head">
+              <span className="cg-event-title">
+                <Icon name="plus" size={18} /> Своё мероприятие
+              </span>
+              <span className={`cg-radio ${custom ? "on" : ""}`} aria-hidden="true">
+                {custom && <Icon name="check" size={14} />}
+              </span>
+            </div>
+            <div className="cg-muted">Музей, театр, парк, предприятие — название и место укажете на следующем шаге.</div>
+          </Card>
+          <Section title="Или из афиши Казани">
             <Input
               mode="contrast"
               placeholder="Музей, театр, выставка…"
@@ -191,7 +268,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
             </div>
           </Section>
           {visible.length === 0 && (
-            <Empty icon="calendar" title="Ничего не нашлось" text="Снимите фильтр или измените запрос." />
+            <Empty icon="calendar" title="Ничего не нашлось" text="Снимите фильтр, измените запрос или добавьте своё мероприятие." />
           )}
           <div className="cg-list">
             {visible.map((e) => {
@@ -208,7 +285,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
                   <div className="cg-tags">
                     <Tag>{dayShort(e.event_date)}</Tag>
                     {e.is_free ? <Tag tone="free">бесплатно</Tag> : <Tag>{money(e.price)}</Tag>}
-                    {e.pushkin_eligible && <Tag tone="pushkin">Пушкинская карта</Tag>}
+                    {e.pushkin_eligible && <Tag tone="pushkin">Пушкинская карта 14+</Tag>}
                     <Tag>{e.age_rating}</Tag>
                     <Tag>{e.duration_min} мин</Tag>
                   </div>
@@ -218,19 +295,44 @@ export default function NewTrip({ classId }: { classId?: number }) {
             })}
           </div>
           <p className="cg-fineprint">
-            Каталог — демонстрационный снимок афиши PRO.Культура.РФ по Казани. В рабочей версии события
-            подтягиваются по открытому API Минкультуры.
+            Афиша — демонстрационный снимок PRO.Культура.РФ по Казани. В рабочей версии события подтягиваются по
+            открытому API Минкультуры, а своё мероприятие можно добавить всегда.
           </p>
         </>
       )}
 
-      {step === 2 && event && (
+      {step === 2 && shown && (
         <>
-          <Card className="cg-picked">
-            <b>{event.title}</b>
-            <span className="cg-muted">{event.venue}</span>
-          </Card>
-          <Section>
+          {custom ? (
+            <Section title="Мероприятие">
+              <div className="cg-form">
+                <Field label="Название">
+                  <input className="cg-input" value={title} placeholder="Экскурсия в музей…" onChange={(e) => setTitle(e.target.value)} />
+                </Field>
+                <Field label="Место">
+                  <input className="cg-input" value={venue} placeholder="Национальный музей РТ" onChange={(e) => setVenue(e.target.value)} />
+                </Field>
+                <Field label="Адрес">
+                  <input className="cg-input" value={address} placeholder="г. Казань, ул. …" onChange={(e) => setAddress(e.target.value)} />
+                </Field>
+                <div className="cg-form-row">
+                  <Field label="Билет, ₽" hint="0 — бесплатно">
+                    <input className="cg-input" inputMode="numeric" value={price} placeholder="0"
+                      onChange={(e) => setPrice(e.target.value.replace(/[^\d.,]/g, ""))} />
+                  </Field>
+                  <Field label="Сайт для билетов">
+                    <input className="cg-input" value={ticketUrl} placeholder="Необязательно" onChange={(e) => setTicketUrl(e.target.value)} />
+                  </Field>
+                </div>
+              </div>
+            </Section>
+          ) : (
+            <Card className="cg-picked">
+              <b>{event!.title}</b>
+              <span className="cg-muted">{event!.venue}</span>
+            </Card>
+          )}
+          <Section title="Когда и как">
             <div className="cg-form">
               <Field label="Дата выезда">
                 <input className="cg-input" type="date" value={date} min={todayIso} onChange={(e) => setDate(e.target.value)} />
@@ -247,8 +349,25 @@ export default function NewTrip({ classId }: { classId?: number }) {
               <Field label="Где собираемся">
                 <input className="cg-input" value={meeting} onChange={(e) => setMeeting(e.target.value)} />
               </Field>
-              <Field label="Кто ещё сопровождает" hint="Например: Иванова А. П., помощник. Попадёт в приказ.">
-                <input className="cg-input" value={escorts} placeholder="Необязательно" onChange={(e) => setEscorts(e.target.value)} />
+              <div className="cg-field">
+                <span className="cg-field-label">Как добираемся</span>
+                <div className="cg-chips">
+                  <Chip active={transport === "walk"} onClick={() => setTransport("walk")}>Пешком / общественный транспорт</Chip>
+                  <Chip active={transport === "bus"} onClick={() => setTransport("bus")}>Заказной автобус</Chip>
+                  <Chip active={transport === "other"} onClick={() => setTransport("other")}>Другое</Chip>
+                </div>
+                {transport === "other" && (
+                  <input className="cg-input cg-mt" value={transportOther} placeholder="Например: электричка" onChange={(e) => setTransportOther(e.target.value)} />
+                )}
+                {transport === "bus" && (
+                  <span className="cg-field-hint">
+                    Организованная перевозка детей: уведомить Госавтоинспекцию за 24 часа (ПП РФ № 680). Пункт появится в
+                    приказе, а в рабочий список добавится возраст детей.
+                  </span>
+                )}
+              </div>
+              <Field label="Помощник руководителя группы" hint="ФИО и должность — попадёт в приказ. Минимум один взрослый.">
+                <input className="cg-input" value={escorts} placeholder="Петрова О. И., педагог-организатор" onChange={(e) => setEscorts(e.target.value)} />
               </Field>
               <div className="cg-form-row">
                 <Field label="Ответить до">
@@ -260,34 +379,41 @@ export default function NewTrip({ classId }: { classId?: number }) {
                 </Field>
               </div>
               {!deadlineOk && <p className="cg-error">Срок ответа — не раньше сегодня и не позже дня выезда.</p>}
+              {deadlineOk && tight && (
+                <p className="cg-warnline">Оставьте 2–3 рабочих дня до выезда: подписать приказ и провести инструктаж.</p>
+              )}
             </div>
           </Section>
           <Notice tone="info" icon="bell">
-            Тем, кто не ответит, ClassGo сам напомнит за 3 дня, за день и за 12 часов до срока.
+            Тем, кто не ответит, ClassGo сам напомнит перед сроком — не чаще раза в сутки и не ночью.
           </Notice>
         </>
       )}
 
-      {step === 3 && event && klass && (
+      {step === 3 && shown && klass && (
         <>
           <Section title="Так увидят родители">
             <div className="cg-preview">
               <div className="cg-preview-bubble">
-                <b>Ученик {klass.title}: приглашение на выезд</b>
+                <b>Ученик {klass.title} — приглашение на выезд</b>
                 <p>
-                  {quote(event.title)} — {event.venue}
+                  Здравствуйте! Классный руководитель {klass.teacher_name || "класса"} зовёт класс:
+                  <br />
+                  <br />
+                  {quote(shown.title)}
+                  {shown.venue ? ` — ${shown.venue}` : ""}
                   <br />
                   Когда: {dayLong(date)}, сбор в {gathering} {meeting}, вернёмся к {returning}
                   <br />
-                  {event.price > 0
-                    ? `Билет ${money(event.price)} — оплачиваете сами в кассе${event.pushkin_eligible ? " или «Пушкинской картой» ребёнка (14+)" : ""}. Школа деньги не собирает.`
+                  {shown.price > 0
+                    ? `Билет: ${money(shown.price)} — покупаете сами на сайте или в кассе учреждения. Школа деньги не собирает.`
                     : "Вход бесплатный."}
                 </p>
-                <p className="cg-muted">Ваш ответ кнопкой считается подписью.</p>
+                <p className="cg-muted">Ответ кнопкой — ваша подпись под согласием на поход. Платить в чате ничего не нужно.</p>
               </div>
               <div className="cg-preview-buttons">
-                <span>✅ Отпускаю</span>
-                <span>✖ Не сможет</span>
+                <span>✅ Да, Имя пойдёт</span>
+                <span>Нет, Имя не пойдёт</span>
                 <span>Подробнее</span>
               </div>
             </div>
@@ -304,10 +430,14 @@ export default function NewTrip({ classId }: { classId?: number }) {
                 <Icon name="share" size={18} />
                 <span>
                   {total - connected} {plural(total - connected, "семья ещё не подключена", "семьи ещё не подключены", "семей ещё не подключены")} —
-                  после отправки поделитесь ссылкой в чате класса.
+                  поделитесь ссылкой в чате класса или раздайте бумажные бланки из пакета документов.
                 </span>
               </div>
             )}
+            <div className="cg-fact">
+              <Icon name="users" size={18} />
+              <span>Руководитель: {klass.teacher_name || "—"}, помощник: {escorts || "—"}. Передвижение: {transportText}.</span>
+            </div>
             {klass.is_demo && (
               <div className="cg-fact">
                 <Icon name="spark" size={18} />

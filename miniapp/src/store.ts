@@ -8,7 +8,8 @@ export type Route =
   | { name: "class"; id: number }
   | { name: "new-class" }
   | { name: "parent-trip"; excursionId: number; studentId: number }
-  | { name: "join"; code: string };
+  | { name: "join"; code: string }
+  | { name: "pair"; code: string };
 
 export type Role = "teacher" | "parent";
 

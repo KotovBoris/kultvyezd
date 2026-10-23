@@ -49,8 +49,9 @@ export default function TeacherHome() {
   const hasDemo = Boolean(classes?.some((c) => c.is_demo));
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const upcoming = (trips ?? []).filter((t) => !t.event_date || (parseDay(t.event_date) ?? today) >= today);
-  const past = (trips ?? []).filter((t) => t.event_date && (parseDay(t.event_date) ?? today) < today);
+  const isPastTrip = (t: Excursion) => t.cancelled || Boolean(t.event_date && (parseDay(t.event_date) ?? today) < today);
+  const upcoming = (trips ?? []).filter((t) => !isPastTrip(t));
+  const past = (trips ?? []).filter(isPastTrip);
   const loading = classes === null || trips === null;
   const noClasses = classes !== null && classes.length === 0;
 
@@ -144,7 +145,7 @@ export default function TeacherHome() {
           </div>
           {past.length > 0 && (
             <button type="button" className="cg-link cg-more" onClick={() => setShowPast((v) => !v)}>
-              {showPast ? "Скрыть прошедшие" : `Прошедшие выезды (${past.length})`}
+              {showPast ? "Скрыть прошедшие и отменённые" : `Прошедшие и отменённые (${past.length})`}
             </button>
           )}
           {showPast && (
@@ -204,11 +205,12 @@ function TripCard({ trip }: { trip: Excursion }) {
           <div className="cg-muted">
             {trip.location_name} · {trip.class_title}
           </div>
-          {s && <ProgressBar stats={s} label={false} />}
+          {s && !trip.cancelled && <ProgressBar stats={s} label={false} />}
           <div className="cg-tripcard-foot">
-            {s && done && <Status tone="going">Ответили все: едут {s.going}</Status>}
-            {s && !done && <Status tone="waiting">Ждём ответа: {s.waiting} из {s.total}</Status>}
-            {s && !done && trip.deadline && (
+            {trip.cancelled && <Status tone="neutral">Выезд отменён</Status>}
+            {s && !trip.cancelled && done && <Status tone="going">Ответили все: едут {s.going}</Status>}
+            {s && !trip.cancelled && !done && <Status tone="waiting">Ждём ответа: {s.waiting} из {s.total}</Status>}
+            {s && !trip.cancelled && !done && trip.deadline && (
               <span className="cg-muted cg-small cg-deadline">
                 {closed ? "Сбор ответов закрыт" : `Ответить до ${deadlineText(trip.deadline)}`}
               </span>

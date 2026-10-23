@@ -1,14 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@maxhub/max-ui";
 import { api, type ParentChild, type ParentTrip as Trip } from "../api";
-import { dayLong, deadlineText, firstName, isPast, money, stamp } from "../format";
-import { haptic, openLink } from "../max";
+import { dayLong, deadlineText, firstName, formatPhone, isPast, money, stamp } from "../format";
+import { haptic, openLink, telHref } from "../max";
 import { errorText, toast, useAppState } from "../store";
-import { Card, Hero, Icon, Loader, Notice, Page, Sheet, Status, Tag } from "../ui";
+import { Card, Hero, Icon, Loader, Notice, Page, Sheet, Tag } from "../ui";
 
-const REASONS = ["Болезнь", "Семейные обстоятельства", "Другая причина"];
+// Без медицинских подробностей: сведения о здоровье — особая категория ПДн (152-ФЗ, ст. 10).
+const REASONS = ["Личные причины", "Семейные обстоятельства", "Другие планы"];
 
-/** Карточка выезда для родителя: ответ в одно касание, квитанция, билет, «Изменить ответ». */
+function pushkinNote(trip: Trip): string {
+  if (!trip.is_pushkin_card) return "";
+  if (trip.pushkin_ok === true) return " Можно оплатить «Пушкинской картой» ребёнка.";
+  if (trip.pushkin_ok === null) return " Если ребёнку уже 14, можно «Пушкинской картой».";
+  return "";
+}
+
+/** Карточка выезда для родителя: ответ в одно касание, квитанция, «Изменить ответ», контакт учителя. */
 export function ParentTripView({
   child,
   trip,
@@ -24,7 +32,8 @@ export function ParentTripView({
   const [askReason, setAskReason] = useState(false);
   const name = firstName(child.student_name);
   const pending = trip.consent_status === "PENDING";
-  const closed = isPast(trip.deadline);
+  const late = isPast(trip.deadline);
+  const tel = telHref(child.teacher_phone);
 
   async function answer(status: "APPROVED" | "REJECTED", reason?: string) {
     setBusy(true);
@@ -60,22 +69,8 @@ export function ParentTripView({
     }
   }
 
-  async function ticketBought() {
-    setBusy(true);
-    try {
-      await api.ticket(trip.excursion_id, child.student_id);
-      haptic.ok();
-      toast("Отметили: билет куплен.");
-      await onChanged();
-    } catch (e) {
-      toast(errorText(e), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <Card className={`cg-ptrip ${pending ? "pending" : ""}`}>
+    <Card className={`cg-ptrip ${pending && !trip.started && !trip.cancelled ? "pending" : ""}`}>
       <div className="cg-ptrip-head">
         <div>
           <div className="cg-overline">{dayLong(trip.event_date)}</div>
@@ -97,70 +92,82 @@ export function ParentTripView({
           <span>
             {trip.ticket_price > 0 ? (
               <>
-                Билет <b>{money(trip.ticket_price)}</b> — платите сами в кассе
-                {trip.is_pushkin_card && <> или «Пушкинской картой» ребёнка (14+)</>}. Школа деньги не собирает.
+                Билет <b>{money(trip.ticket_price)}</b> — семья покупает сама на сайте или в кассе.
+                {pushkinNote(trip)} Школа деньги не собирает.
               </>
             ) : (
-              <>Вход бесплатный</>
+              <>Вход бесплатный.</>
             )}
           </span>
         </div>
         {full && (
-          <>
-            <div className="cg-fact">
-              <Icon name="pin" size={18} />
-              <span>{trip.address || trip.location_name}</span>
-            </div>
-            <div className="cg-fact">
-              <Icon name="users" size={18} />
-              <span>Ведёт {trip.responsible_teacher || child.teacher_name || "классный руководитель"}</span>
-            </div>
-          </>
+          <div className="cg-fact">
+            <Icon name="pin" size={18} />
+            <span>{trip.address || trip.location_name}</span>
+          </div>
         )}
+        <div className="cg-fact">
+          <Icon name="users" size={18} />
+          <span>Ведёт: {trip.responsible_teacher || child.teacher_name || "классный руководитель"}</span>
+        </div>
       </div>
 
-      {pending && !closed && (
+      {trip.cancelled && (
+        <Notice tone="warn" icon="info" title="Выезд отменён">
+          {name} остаётся на уроках по расписанию. Если вы уже купили билет — уточните у классного руководителя про
+          возврат.
+        </Notice>
+      )}
+
+      {pending && !trip.started && !trip.cancelled && (
         <>
           <div className="cg-question">
-            {name} поедет на выезд?
-            {trip.deadline && <span className="cg-muted"> Ответьте до {deadlineText(trip.deadline)}.</span>}
+            {name} пойдёт на выезд?
+            {trip.deadline && (
+              <span className={late ? "cg-late" : "cg-muted"}>
+                {late
+                  ? "Срок ответа прошёл, но ответить ещё можно — учитель увидит."
+                  : `Ответьте до ${deadlineText(trip.deadline)}.`}
+              </span>
+            )}
           </div>
           <div className="cg-stack">
             <Button size="large" stretched loading={busy && !askReason} onClick={() => void answer("APPROVED")}
               iconBefore={<Icon name="check" size={22} />}>
-              Отпускаю
+              Да, {name} пойдёт
             </Button>
             <Button size="large" stretched variant="secondary" disabled={busy} onClick={() => setAskReason(true)}>
-              Не сможет
+              Нет, {name} не пойдёт
             </Button>
           </div>
-          <p className="cg-fineprint">Ваш ответ кнопкой считается подписью. Его можно изменить до срока.</p>
+          <p className="cg-note">
+            Ответ кнопкой — ваша подпись под согласием на поход. Платить здесь ничего не нужно. Удобнее на бумаге —
+            бланк у классного руководителя.
+          </p>
         </>
       )}
 
-      {pending && closed && (
-        <Notice tone="warn" icon="clock" title="Срок ответа прошёл">
-          Напишите или позвоните классному руководителю, если ребёнок всё же едет.
+      {pending && trip.started && !trip.cancelled && (
+        <Notice tone="warn" icon="clock" title="Выезд уже начался">
+          Ответить уже нельзя. Если {name} всё-таки едет — позвоните классному руководителю.
         </Notice>
       )}
 
-      {trip.consent_status === "APPROVED" && (
+      {trip.consent_status === "APPROVED" && !trip.cancelled && (
         <div className="cg-receipt ok">
           <Icon name="check" size={22} />
           <div>
-            <b>Готово: {name} едет.</b>
-            <span>
-              Подпись записана {stamp(trip.signed_at)}. Учитель уже видит ответ.
-            </span>
+            <b>Готово: {name} идёт на выезд.</b>
+            <span>Подпись записана {stamp(trip.signed_at)}. Учитель уже видит ответ.</span>
           </div>
         </div>
       )}
 
-      {trip.consent_status === "REJECTED" && (
+      {trip.consent_status === "REJECTED" && !trip.cancelled && (
         <div className="cg-receipt no">
           <Icon name="x" size={22} />
           <div>
-            <b>Вы ответили: {name} не сможет.</b>
+            <b>Вы ответили: {name} не пойдёт.</b>
             <span>
               {trip.rejection_reason || "Без причины"} · {stamp(trip.signed_at)}. Учитель уже видит ответ.
             </span>
@@ -168,38 +175,37 @@ export function ParentTripView({
         </div>
       )}
 
-      {trip.consent_status === "APPROVED" && trip.ticket_status === "WAITING_PAYMENT" && (
+      {trip.consent_status === "APPROVED" && trip.ticket_price > 0 && trip.ticket_sale_url && !trip.started && !trip.cancelled && (
         <div className="cg-ticketstep">
-          <div className="cg-actions-title">Остался билет</div>
+          <div className="cg-actions-title">Билет</div>
           <p className="cg-muted">
-            Купите билет сами на сайте учреждения
-            {trip.is_pushkin_card ? " — подросток 14+ может оплатить своей «Пушкинской картой»" : ""}. Потом отметьте здесь.
+            Если ещё не купили — купите сами на сайте учреждения.{pushkinNote(trip)} Трудности с оплатой — скажите
+            классному руководителю.
           </p>
-          <div className="cg-row-buttons">
-            {trip.ticket_sale_url && (
-              <Button size="medium" onClick={() => openLink(trip.ticket_sale_url)} iconBefore={<Icon name="ticket" size={18} />}>
-                Купить билет
-              </Button>
-            )}
-            <Button size="medium" variant="secondary" disabled={busy} onClick={() => void ticketBought()}>
-              Билет купили
-            </Button>
-          </div>
+          <Button size="medium" variant="secondary" onClick={() => openLink(trip.ticket_sale_url)}
+            iconBefore={<Icon name="ticket" size={18} />}>
+            Открыть сайт учреждения
+          </Button>
         </div>
       )}
 
-      {trip.consent_status === "APPROVED" && trip.ticket_status === "PAID" && (
-        <Status tone="going">Билет куплен — всё готово</Status>
+      {((!pending && trip.can_change) || tel) && (
+        <div className="cg-ptrip-links">
+          {!pending && trip.can_change && (
+            <button type="button" className="cg-link" disabled={busy} onClick={() => void change()}>
+              Изменить ответ (можно до начала выезда)
+            </button>
+          )}
+          {tel && (
+            <a className="cg-link cg-linkrow" href={tel}>
+              <Icon name="phone" size={16} /> Позвонить учителю · {formatPhone(child.teacher_phone)}
+            </a>
+          )}
+        </div>
       )}
 
-      {!pending && !closed && trip.ticket_status !== "PAID" && (
-        <button type="button" className="cg-link" disabled={busy} onClick={() => void change()}>
-          Изменить ответ
-        </button>
-      )}
-
-      <Sheet open={askReason} title={`Почему ${name} не сможет?`} onClose={() => setAskReason(false)}>
-        <p className="cg-muted">Учитель увидит только эту причину. Объяснять подробнее не нужно.</p>
+      <Sheet open={askReason} title={`Почему ${name} не пойдёт?`} onClose={() => setAskReason(false)}>
+        <p className="cg-muted">Учитель увидит только этот вариант. Подробности объяснять не нужно.</p>
         <div className="cg-stack">
           {REASONS.map((r) => (
             <Button key={r} size="large" stretched variant="secondary" disabled={busy} onClick={() => void answer("REJECTED", r)}>

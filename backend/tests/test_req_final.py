@@ -265,9 +265,33 @@ def test_FIN_16_roll_call_milestones_and_cancel(client: TestClient) -> None:
     assert going["full_name"] in m["absent"]
     trip = client.get(f"/api/v1/excursions/{exc_id}").json()
     assert trip["departed_at"] and not trip["returned_at"]
+    # Повторное «выехали» не рассылает сообщения заново и не сдвигает время
+    again = client.post(f"/api/v1/excursions/{exc_id}/milestone", params={"user_id": owner},
+                        json={"kind": "departed"}).json()
+    assert again["notified"] == 0 and again["at"] == m["at"]
     c = client.post(f"/api/v1/excursions/{exc_id}/cancel", params={"user_id": owner}).json()
     assert c["ok"] is True
     assert client.get(f"/api/v1/excursions/{exc_id}").json()["cancelled"] is True
+    # После отмены: «вернулись» нельзя, ответить нельзя, родитель видит отмену
+    assert client.post(f"/api/v1/excursions/{exc_id}/milestone", params={"user_id": owner},
+                       json={"kind": "returned"}).status_code == 409
+    waiting = next(p for p in dash["participants"] if p["consent_status"] == "PENDING")
+    r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": owner},
+                    json={"student_id": waiting["student_id"], "status": "APPROVED", "source": "paper",
+                          "parent_name": "Тест"}).json()
+    assert r["changed"] is False and "отменён" in r["message"]
+    ctx = client.get("/api/v1/parent/context", params={"max_user_id": owner}).json()
+    trip = next(t for t in ctx["children"][0]["excursions"] if t["excursion_id"] == exc_id)
+    assert trip["cancelled"] is True and trip["can_change"] is False
+
+
+def test_FIN_19_gender_from_patronymic() -> None:
+    from app.bot import is_female
+
+    assert is_female("Сафина Алина Маратовна")
+    assert not is_female("Сафин Тимур Ренатович")
+    assert is_female("Иванова Анна")
+    assert not is_female("Иванов Иван")
 
 
 def test_FIN_17_second_parent_by_link(client: TestClient) -> None:
@@ -299,3 +323,33 @@ def test_FIN_18_pushkin_only_for_14_plus(client: TestClient) -> None:
     assert svc.pushkin_for(St(class_id=1, full_name="a", birth_date=date(2013, 4, 12)), exc) is False
     assert svc.pushkin_for(St(class_id=1, full_name="b", birth_date=date(2011, 10, 1)), exc) is True
     assert svc.pushkin_for(St(class_id=1, full_name="c"), exc) is None
+
+
+def test_FIN_20_consent_only_by_parent_or_teacher_paper(client: TestClient) -> None:
+    owner = 7_700_700
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    exc_id, own_child = info["excursion_ids"][0], info["child_student_id"]
+    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()
+    other = next(p for p in dash["participants"]
+                 if p["consent_status"] == "PENDING" and p["student_id"] != own_child)
+    stranger = owner + 77
+    # Чужой человек не может ответить за ребёнка
+    r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": stranger},
+                    json={"student_id": own_child, "status": "APPROVED", "source": "miniapp"})
+    assert r.status_code == 403
+    # …и не может отметить бумажный бланк в чужом классе
+    r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": stranger},
+                    json={"student_id": other["student_id"], "status": "APPROVED", "source": "paper"})
+    assert r.status_code == 403
+    # Учитель отмечает бланк: подписью MAX учителя это не становится
+    r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": owner},
+                    json={"student_id": other["student_id"], "status": "APPROVED", "source": "paper",
+                          "parent_name": "Родитель (бумажный бланк, отметил учитель)"})
+    assert r.status_code == 200 and r.json()["changed"] is True
+    row = next(p for p in client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()["participants"]
+               if p["student_id"] == other["student_id"])
+    assert row["signed_source"] == "paper" and row["signed_by_max_user_id"] is None
+    # Родитель отвечает за своего ребёнка
+    r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": owner},
+                    json={"student_id": own_child, "status": "APPROVED", "source": "miniapp"})
+    assert r.status_code == 200

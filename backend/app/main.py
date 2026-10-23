@@ -455,6 +455,7 @@ async def import_class(
     school_number: str = Query(default=""),
     school_name: str = Query(default=""),
     teacher_name: str = Query(default=""),
+    teacher_phone: str = Query(default=""),
     caller: Caller = Depends(get_caller),
     session: Session = Depends(get_session),
 ) -> ImportResult:
@@ -469,7 +470,8 @@ async def import_class(
         raise HTTPException(status_code=400, detail="В файле не найдено строк данных")
 
     klass = SchoolClass(grade=grade, letter=letter, school_number=school_number,
-                        school_name=school_name, teacher_name=teacher_name, owner_user_id=caller.user_id)
+                        school_name=school_name, teacher_name=teacher_name, teacher_phone=teacher_phone.strip(),
+                        owner_user_id=caller.user_id)
     _apply_school(session, klass, school_id)
     session.add(klass)
     session.commit()
@@ -773,11 +775,23 @@ async def post_consent(excursion_id: int, payload: ConsentRequest, request: Requ
         raise HTTPException(status_code=404, detail="Выезд не найден")
     if payload.status not in ("APPROVED", "REJECTED"):
         raise HTTPException(status_code=422, detail="status должен быть APPROVED или REJECTED")
+    paper = payload.source == "paper"
+    if caller.user_id:
+        if paper:
+            klass = session.get(SchoolClass, exc.class_id)
+            if not (klass and _can_edit_class(session, klass, caller.user_id)):
+                raise HTTPException(status_code=403, detail="Бумажный бланк отмечает классный руководитель")
+        elif not any(p.max_user_id == caller.user_id for p in services.student_parents(session, payload.student_id)):
+            raise HTTPException(status_code=403, detail="Ответить может только родитель этого ученика")
+    elif settings.MAX_VALIDATE_INIT_DATA or settings.bot_enabled:
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX, чтобы ответить")
     try:
         p, changed, message = services.apply_consent(
             session, exc, student_id=payload.student_id, status=payload.status,
             parent_phone=payload.parent_phone, parent_name=payload.parent_name or caller.display_name,
-            reason=payload.reason, source=payload.source, max_user_id=caller.user_id,
+            reason=payload.reason, source=payload.source,
+            # Бумажный бланк — подпись родителя на бумаге; MAX ID учителя в подпись не записываем.
+            max_user_id=None if paper else caller.user_id,
         )
     except ValueError as exc_err:
         raise HTTPException(status_code=404, detail=str(exc_err)) from exc_err
@@ -849,6 +863,16 @@ async def trip_milestone(excursion_id: int, payload: MilestoneRequest, caller: C
                          session: Session = Depends(get_session)) -> MilestoneOut:
     """«Группа выехала» / «Группа вернулась»: родители получают сообщение в MAX."""
     exc = _teacher_excursion(session, excursion_id, caller)
+    if exc.cancelled:
+        raise HTTPException(status_code=409, detail="Выезд отменён")
+    if payload.kind == "returned" and not exc.departed_at:
+        raise HTTPException(status_code=409, detail="Сначала отметьте, что группа выехала")
+    absent = [session.get(Student, p.student_id).full_name for p in exc.participants
+              if p.consent_status == "APPROVED" and p.present is False]
+    already = exc.departed_at if payload.kind == "departed" else exc.returned_at
+    if already:
+        # Повторное нажатие не рассылает сообщения второй раз.
+        return MilestoneOut(kind=payload.kind, at=already, notified=0, absent=absent)
     now = datetime.utcnow()
     if payload.kind == "departed":
         exc.departed_at = now
@@ -856,8 +880,6 @@ async def trip_milestone(excursion_id: int, payload: MilestoneRequest, caller: C
         exc.returned_at = now
     session.add(exc)
     session.commit()
-    absent = [session.get(Student, p.student_id).full_name for p in exc.participants
-              if p.consent_status == "APPROVED" and p.present is False]
     notified = await BotService().notify_milestone(exc.id, payload.kind) if settings.bot_enabled else 0
     return MilestoneOut(kind=payload.kind, at=now, notified=notified, absent=absent)
 

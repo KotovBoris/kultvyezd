@@ -243,7 +243,6 @@ export function StatTiles({ stats, compact = false }: { stats: TripStats; compac
 export function ProgressBar({ stats, label = true }: { stats: TripStats; label?: boolean }) {
   const total = stats.total || 1;
   const seg = (n: number) => `${(100 * n) / total}%`;
-  const going = stats.going - stats.waiting_ticket;
   return (
     <div className="cg-progress-wrap">
       <div
@@ -251,14 +250,12 @@ export function ProgressBar({ stats, label = true }: { stats: TripStats; label?:
         role="img"
         aria-label={`Ответили ${stats.answered} из ${stats.total}`}
       >
-        <span className="seg st-going" style={{ width: seg(going) }} />
-        <span className="seg st-ticket" style={{ width: seg(stats.waiting_ticket) }} />
+        <span className="seg st-going" style={{ width: seg(stats.going) }} />
         <span className="seg st-notgoing" style={{ width: seg(stats.not_going) }} />
       </div>
       {label && (
         <div className="cg-progress-label">
           Ответили <b>{stats.answered}</b> из {stats.total}
-          {stats.waiting_ticket > 0 && <span> · без билета: {stats.waiting_ticket}</span>}
         </div>
       )}
     </div>

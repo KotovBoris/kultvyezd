@@ -30,6 +30,7 @@ export default function NewClass() {
   const [letter, setLetter] = useState("");
   const [school, setSchool] = useState("");
   const [teacher, setTeacher] = useState(me?.name ?? "");
+  const [phone, setPhone] = useState("");
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,6 +58,7 @@ export default function NewClass() {
           letter: letter.trim().toUpperCase(),
           school_name: school.trim(),
           teacher_name: teacher.trim(),
+          teacher_phone: phone.trim(),
         });
         classId = r.class_id;
         count = r.students_created;
@@ -66,6 +68,7 @@ export default function NewClass() {
           letter: letter.trim().toUpperCase(),
           school_name: school.trim(),
           teacher_name: teacher.trim(),
+          teacher_phone: phone.trim(),
           students,
         });
         classId = r.id;
@@ -111,6 +114,10 @@ export default function NewClass() {
           </Field>
           <Field label="Классный руководитель" hint="Попадёт в приказ как ответственный за группу.">
             <input className="cg-input" value={teacher} placeholder="Фамилия Имя Отчество" onChange={(e) => setTeacher(e.target.value)} />
+          </Field>
+          <Field label="Ваш телефон для родителей" hint="Необязательно. Покажем в приглашении, чтобы родитель мог позвонить с вопросом.">
+            <input className="cg-input" type="tel" inputMode="tel" autoComplete="tel" value={phone} placeholder="+7 900 000-00-00"
+              onChange={(e) => setPhone(e.target.value)} />
           </Field>
         </div>
       </Section>
