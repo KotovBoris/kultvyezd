@@ -1,55 +1,22 @@
-/* avoid-ai-design-ignore-file: моно-шрифт отсутствует осознанно — все числа
-   (даты, деньги, номера билетов, номера строк) набраны Golos Text с
-   font-variant-numeric: tabular-nums. Отдельная моно-гарнитура «для мелких
-   данных» — типовой признак сгенерированного интерфейса, поэтому убрана.
-   Нумерация строк ведомости удалена: «01/02/03»-маркеры уместны только у
-   реальной последовательности (шаги, таймлайн), а это просто список класса. */
 /* ============================================================================
-   ClassGo — дизайн-система v2 «Бригадир»
-   Контракт: docs/DESIGN.md
-   Мир продукта: школьный выезд и билет в музей. Интерфейс читается как
-   аккуратно заполненный выездной лист, где главный элемент — состав группы:
-   кто сдал согласие, у кого билет, кто ещё не ответил. Signature-деталь —
-   табличка «Ряды мест»: места в автобусе как места в зрительном зале.
-   Запрещено: AI-фиолет, большие радиусы, декоративные тени, emoji,
-   ALL-CAPS-надписи, центрированные «герои», моно-шрифт ради стиля.
+   ClassGo — интерфейс поверх дизайн-системы MAX (@maxhub/max-ui).
+   Цвета, шрифт и радиусы берём из токенов MAX UI, поэтому мини-приложение
+   выглядит частью мессенджера и само переключается в тёмную тему.
+   Правила для аудитории 40–70 лет: текст от 17 px, главные кнопки 56 px,
+   статус всегда словом + значком + цветом, одна главная кнопка на экран.
    ========================================================================= */
-@import url("/fonts.css");
 
 :root {
-  /* Палитра: тёплый лист для чтения, чернила, синий акцент действия.
-     Действие и опасность разведены: --accent (синий) — «ведёт вперёд»,
-     --stop (красный) — только деструктив/отказ/ошибка. См. docs/COLOR.md. */
-  --line: #e4e1da; /* фон приложения — тёплый бумажный */
-  --sheet: #fffdf8; /* лист/карточка — светлее фона, читается как слой */
-  --raised: #f6f3ec; /* утопленная поверхность (поля ввода, шапка таблицы) */
-  --ink: #1c1a17; /* чернила */
-  --ink-2: #6a6459; /* приглушённые подписи */
-  --rule: #e5e1d9; /* волосяная линия внутри листа */
-  --rule-strong: #cfc8bb; /* рамка */
-  --accent: #1d4ed8; /* primary: главное действие/бренд/ссылки — индиго-синий */
-  --accent-ink: #1e40af; /* primary hover/active, текст ссылок */
+  color-scheme: light dark;
+  --cg-page: #f5f7fa;
+  --cg-surface: #ffffff;
+}
 
-  /* Семантика статусов («Светофор») — цвет несёт смысл, не декор.
-     Оттенки подобраны под контраст ≥ 4.5:1 на светлом листе (текст читаем). */
-  --ok: #1f7a4c;
-  --wait: #8a5a12;
-  --idle: #6f6a63;
-  --stop: #b3121a; /* danger: отказ/деструктив/критическая ошибка — красный */
-
-  --font-text: "Golos Text", -apple-system, "Segoe UI", Roboto, sans-serif;
-
-  /* Ритм: 8px база */
-  --s1: 4px;
-  --s2: 8px;
-  --s3: 12px;
-  --s4: 16px;
-  --s5: 24px;
-  --s6: 32px;
-  --s7: 48px;
-
-  --r: 12px; /* радиус поверхностей */
-  --r-sm: 8px; /* вложенные элементы */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cg-page: #17181c;
+    --cg-surface: #25262d;
+  }
 }
 
 * {
@@ -57,1010 +24,1629 @@
 }
 
 html {
-  /* Масштаб текста задаётся системной настройкой: не «замораживаем» px и не даём
-     мобильному браузеру самовольно менять размер (text-size-adjust). См.
-     docs/MOTION_AND_A11Y.md §3 — аудитория 50+ часто включает крупный текст. */
-  font-size: 100%; /* = 16px; растёт вместе с системным крупным текстом */
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
 
-html,
 body {
   margin: 0;
-  padding: 0;
+  background: var(--cg-page);
+  overscroll-behavior-y: none;
 }
 
-body {
-  background: var(--line);
-  color: var(--ink);
-  font-family: var(--font-text);
-  font-size: 1rem; /* 16px — минимум для основного текста (доступность 50+) */
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  font-variant-numeric: tabular-nums; /* разряды выравниваются без моно-шрифта */
-  text-wrap: pretty;
-  overflow-wrap: break-word; /* длинные слова/ФИО не выдавливают вёрстку при крупном тексте */
+body.cg-noscroll {
+  overflow: hidden;
 }
 
-/* ---------- каркас ---------- */
-.kv-app {
-  max-width: 720px;
+/* --------------------------------------------------------------- токены */
+.cg-app {
+  --accent: var(--text-themed, #007aff);
+  --accent-soft: rgba(0, 122, 255, 0.1);
+  --text: var(--text-primary, #060708);
+  --muted: var(--text-secondary, rgba(6, 7, 8, 0.68));
+  --faint: var(--text-tertiary, rgba(6, 7, 8, 0.52));
+  --line: var(--divider-secondary, rgba(12, 13, 14, 0.06));
+  --line-strong: var(--divider-primary, rgba(12, 13, 14, 0.16));
+  --page: var(--background-secondary, #f5f7fa);
+  --surface: var(--background-primary, #ffffff);
+  --sunken: var(--background-tertiary, rgba(9, 9, 9, 0.05));
+
+  --going: #137a3a;
+  --going-bg: #e4f6ea;
+  --waiting: #855400;
+  --waiting-bg: #fff2d1;
+  --notgoing: #4f5763;
+  --notgoing-bg: #eceef2;
+  --ticket: #0a5fc2;
+  --ticket-bg: #e5f0fe;
+  --danger: var(--text-negative, #e0262f);
+  --demo: #6c3fd1;
+  --demo-bg: #f1ebfe;
+
+  --radius: var(--size-border-radius-semantic-border-radius-card, 16px);
+  --radius-sm: 12px;
+  --shadow: 0 1px 2px rgba(15, 20, 30, 0.04), 0 2px 8px rgba(15, 20, 30, 0.04);
+  --gutter: 16px;
+
+  min-height: 100vh;
+  min-height: 100dvh;
+  max-width: 560px;
   margin: 0 auto;
-  padding: var(--s4) var(--s4) var(--s6);
+  padding: 12px var(--gutter) 0;
+  background: var(--page);
+  color: var(--text);
+  font-family: var(--family-base, -apple-system, system-ui, Roboto, sans-serif);
+  font-size: 17px;
+  line-height: 1.4;
 }
 
-/* Шапка — строка-маркировка, не центрированный герой */
-.kv-header {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-  margin-bottom: var(--s4);
-}
-/* Знак ClassGo: распределительная отметка CG */
-.kv-logo {
-  width: 2.125rem;
-  height: 2.125rem;
-  flex: 0 0 auto;
-  background: var(--accent);
-  color: #fff;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  font-size: 0.875rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-}
-.kv-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  margin: 0;
-  letter-spacing: -0.015em;
-}
-.kv-subtitle {
-  font-size: 0.75rem;
-  color: var(--ink-2);
-  margin: 1px 0 0;
+:where([class*="MaxUI_colorScheme_dark"]) .cg-app {
+  --page: var(--background-primary, #17181c);
+  --surface: var(--background-secondary, #25262d);
+  --accent-soft: rgba(0, 122, 255, 0.2);
+  --going: #5ad889;
+  --going-bg: rgba(43, 198, 68, 0.16);
+  --waiting: #ffcf6b;
+  --waiting-bg: rgba(255, 184, 0, 0.15);
+  --notgoing: #c3c8d1;
+  --notgoing-bg: rgba(255, 255, 255, 0.08);
+  --ticket: #8cbcff;
+  --ticket-bg: rgba(0, 122, 255, 0.2);
+  --demo: #c7b1ff;
+  --demo-bg: rgba(140, 100, 255, 0.18);
+  --shadow: none;
 }
 
-/* ---------- лист / карточка ---------- */
-.kv-card {
-  background: var(--sheet);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--r);
-  padding: var(--s4);
-  margin-bottom: var(--s3);
-}
-.kv-card.is-active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-.kv-card h3 {
-  margin: 0 0 var(--s2);
-  font-size: 1.0625rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.kv-muted {
-  color: var(--ink-2);
-  font-size: 0.875rem;
+.cg-icon {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
 }
 
-/* Заголовок-раздел: строчная, с короткой линией до края */
-.kv-section {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--ink);
-  margin: 0 0 var(--s2);
-  padding-bottom: var(--s1);
-  border-bottom: 1px solid var(--rule);
+.flip {
+  transform: rotate(180deg);
 }
 
-.kv-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s2);
-}
-.kv-wrap {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2);
+.cg-muted {
+  color: var(--muted);
 }
 
-/* Метка (не пилюля): прямоугольная, служебная */
-.kv-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s1);
-  padding: 3px var(--s2);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--r-sm);
-  font-size: 0.75rem;
-  color: var(--ink);
-  background: var(--sheet);
-  /* Без nowrap: при крупном системном тексте метка переносится, а не обрезается. */
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-.kv-chip.pushkin {
-  border-color: var(--ink);
-  border-style: dashed;
-}
-.kv-chip.free {
-  border-color: var(--ok);
-  color: var(--ok);
-}
-.kv-chip.money {
-  font-weight: 600;
+.cg-small {
+  font-size: 15px;
 }
 
-/* ---------- фильтры ---------- */
-.kv-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2);
-  margin-bottom: var(--s3);
-}
-.kv-filters select,
-.kv-filters input[type="time"],
-.kv-filters input[type="text"],
-.kv-filters input[type="date"] {
-  padding: 7px var(--s2);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--r-sm);
-  background: var(--sheet);
-  font: inherit;
-  font-size: 0.875rem;
-}
-/* Дата внутри метки-фильтра (с/по): без рамки, метка уже её рисует */
-.kv-chip input[type="date"] {
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: 0.8125rem;
-  color: inherit;
-  padding: 0 2px;
-}
-.kv-chip input[type="date"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.cg-center {
+  text-align: center;
 }
 
-/* ---------- кнопки ---------- */
-.kv-btn {
-  appearance: none;
-  border: 1px solid var(--rule-strong);
-  background: var(--sheet);
-  color: var(--ink);
-  padding: 8px var(--s3);
-  min-height: 44px; /* 44px — тап-зона для аудитории 50+ (WCAG 2.5.8 min 24px) */
-  border-radius: var(--r-sm);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 500;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: background-color 90ms linear, border-color 90ms linear, color 90ms linear,
-    transform 90ms ease;
+.cg-mt {
+  margin-top: 12px;
 }
-.kv-btn:hover {
-  background: var(--raised);
+
+/* --------------------------------------------------------------- каркас */
+.cg-page {
+  padding-bottom: 32px;
+  animation: cg-in 0.18s ease-out;
 }
-/* Тактильный отклик на нажатие: только transform (композитор), не двигает layout. */
-.kv-btn:active:not(:disabled) {
-  transform: scale(0.98);
+
+.cg-page.has-bottom {
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
 }
-.kv-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-.kv-btn.primary:hover {
-  background: var(--accent-ink);
-  border-color: var(--accent-ink);
-}
-.kv-btn.ghost {
-  border-color: transparent;
-  background: transparent;
-  color: var(--ink-2);
-  padding-inline: var(--s2);
-}
-.kv-btn.ghost:hover {
-  background: var(--raised);
-  color: var(--ink);
-}
-.kv-btn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-/* Деструктивное действие: отделено и по цвету, и по месту, не равнозначно главному */
-.kv-btn.danger {
-  color: var(--stop);
-  border-color: var(--stop);
-  background: var(--sheet);
-}
-.kv-btn.danger:hover {
-  background: #fdf3f3;
-}
-.kv-btn.danger:focus-visible {
-  outline-color: var(--stop);
-}
-/* Кнопка конкретного действия в процессе: держим её видимой, индикатор у неё самой */
-.kv-btn.busy,
-.kv-btn.busy:disabled {
-  opacity: 1;
-}
-.kv-spin {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 auto;
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: kv-rotate 0.7s linear infinite;
-}
-@keyframes kv-rotate {
-  to {
-    transform: rotate(360deg);
-  }
-}
-/* Появление «что-то произошло» (алерт/раскрытая форма): только opacity/transform —
-   композиторные свойства, не грузят главный поток (см. docs/MOTION_AND_A11Y.md §2/§4). */
-@keyframes kv-enter {
+
+@keyframes cg-in {
   from {
     opacity: 0;
-    transform: translateY(-2px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
-/* Фокус — видимый, в цвете акцента (доступность) */
-.kv-btn:focus-visible,
-.kv-tab:focus-visible,
-a.kv-btn:focus-visible,
-.kv-filters select:focus-visible,
-.kv-filters input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+
+.cg-bottom {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  z-index: 20;
+  width: 100%;
+  max-width: 560px;
+  transform: translateX(-50%);
+  padding: 12px var(--gutter) calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--page) 70%, transparent);
 }
 
-/* ---------- вкладки: пилюли-переключатели ---------- */
-.kv-tabs {
-  display: inline-flex;
-  gap: 2px;
-  margin-bottom: var(--s3);
-  padding: 3px;
-  background: var(--raised);
-  border: 1px solid var(--rule-strong);
-  border-radius: 999px;
-  max-width: 100%;
-  overflow-x: auto; /* три вкладки на узком экране скроллятся, документ не «разъезжается» */
-}
-.kv-tab {
-  border: none;
-  background: transparent;
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 500;
-  padding: 6px var(--s4);
-  min-height: 44px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color 120ms linear, color 120ms linear;
-}
-.kv-tab.active {
-  background: var(--sheet);
-  color: var(--ink);
-  box-shadow: 0 0 0 1px var(--rule-strong);
+.cg-bottom-pair {
+  display: flex;
+  gap: 8px;
 }
 
-/* ---------- hero выезда: то, что первым видит учитель ---------- */
-.kv-hero {
-  background: var(--sheet);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--r);
-  padding: var(--s4);
-  margin-bottom: var(--s3);
+.cg-bottom-pair > :first-child {
+  flex: none;
 }
-.kv-hero-top {
+
+.cg-hero {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s3);
+  gap: 12px;
+  margin: 8px 0 16px;
 }
-.kv-hero-title {
+
+.cg-hero-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.cg-overline {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.cg-h1 {
   margin: 0;
-  font-size: 1.375rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 26px;
   line-height: 1.2;
-  max-width: 24ch;
-}
-.kv-hero-where {
-  margin: 4px 0 0;
-  color: var(--ink-2);
-  font-size: 0.8125rem;
-}
-.kv-hero-when {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2) var(--s5);
-  margin-top: var(--s3);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
-}
-.kv-hero-when dt {
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--ink-2);
-}
-.kv-hero-when dd {
-  margin: 1px 0 0;
-  font-size: 0.9375rem;
-  font-weight: 600;
-}
-
-/* ---------- готовность списка: ступенчатая полоса ---------- */
-.kv-bar {
-  display: flex;
-  height: 10px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: var(--raised);
-  border: 1px solid var(--rule);
-  margin: var(--s4) 0 var(--s2);
-}
-.kv-bar > i {
-  display: block;
-  height: 100%;
-}
-.kv-bar .seg-GREEN {
-  background: var(--ok);
-}
-.kv-bar .seg-YELLOW {
-  background: var(--wait);
-}
-.kv-bar .seg-GREY {
-  background: var(--idle);
-}
-.kv-bar .seg-RED {
-  background: var(--stop);
-}
-.kv-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s2) var(--s4);
-  font-size: 0.8125rem;
-  color: var(--ink);
-}
-.kv-counts b {
   font-weight: 700;
-}
-.kv-counts .c-GREEN {
-  color: var(--ok);
-}
-.kv-counts .c-YELLOW {
-  color: var(--wait);
-}
-.kv-counts .c-GREY {
-  color: var(--idle);
-}
-.kv-counts .c-RED {
-  color: var(--stop);
-}
-.kv-score {
-  font-size: 1.875rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 
-/* Точка статуса (в легенде/строках) */
-.kv-dot {
-  width: 9px;
-  height: 9px;
-  display: inline-block;
-  margin-right: var(--s1);
-  border-radius: 50%;
-}
-.dot-GREEN {
-  background: var(--ok);
-}
-.dot-YELLOW {
-  background: var(--wait);
-}
-.dot-GREY {
-  background: var(--idle);
-}
-.dot-RED {
-  background: var(--stop);
+.cg-sub {
+  margin: 6px 0 0;
+  color: var(--muted);
 }
 
-/* ---------- статус в строке ведомости ---------- */
-.kv-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: var(--r-sm);
-  font-size: 0.75rem;
-  font-weight: 600;
-  border: 1px solid currentColor;
-  background: transparent;
-}
-.badge-GREEN {
-  color: var(--ok);
-}
-.badge-YELLOW {
-  color: var(--wait);
-}
-.badge-GREY {
-  color: var(--idle);
-}
-.badge-RED {
-  color: var(--stop);
+.cg-section {
+  margin: 20px 0;
 }
 
-/* ---------- Signature: «Ряды мест» ---------- */
-.kv-seats-head {
+.cg-section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--s2);
-  margin-bottom: var(--s2);
-}
-.kv-seats-head .kv-section {
-  /* Разрешаем перенос: при крупном тексте заголовок не должен уходить в обрез. */
-  white-space: normal;
-}
-.kv-nowrap {
-  /* Осознанно оставлен opt-in для коротких служебных значений (число/время). */
-  white-space: nowrap;
-}
-.kv-seats {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s3);
-}
-/* Ряд мест — независимая от вьюпорта единица: браузер может пропустить отрисовку
-   далёких рядов длинной ведомости (content-visibility), сохраняя место в потоке.
-   contain-intrinsic-size задаёт запас по высоте ряда, чтобы не «прыгал» скролл. */
-.kv-bay {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s3);
-  content-visibility: auto;
-  contain-intrinsic-size: auto 52px;
-}
-.kv-aisle {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--ink-2);
-  width: 46px;
-  flex: 0 0 auto;
-  padding-top: 9px;
-}
-/* ровно 4 места в ряд — как в автобусе. Колонки гибкие (min 44px — тап-зона,
-   max 56px), чтобы крупный системный текст не ломал сетку и не выдавливал её. */
-.kv-seat-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(44px, 56px));
-  gap: 6px;
-  flex: 1 1 auto;
-}
-.kv-seat {
-  min-width: 44px;
-  min-height: 44px;
-  aspect-ratio: 1 / 1;
-  border-radius: 10px;
-  border: 1px solid var(--rule-strong);
-  background: var(--raised);
-  color: var(--ink-2);
-  font-size: 0.75rem;
-  font-weight: 600;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  font-variant-numeric: tabular-nums;
-  /* мягкая смена статуса — одиночный элемент, дешёвая перекраска */
-  transition: background-color 120ms linear, color 120ms linear;
-}
-.kv-seat:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.kv-seat-GREEN {
-  background: var(--ok);
-  border-color: var(--ok);
-  color: #fff;
-}
-.kv-seat-YELLOW {
-  background: var(--wait);
-  border-color: var(--wait);
-  color: #fff;
-}
-.kv-seat-RED {
-  background: var(--stop);
-  border-color: var(--stop);
-  color: #fff;
-}
-.kv-seat-GREY {
-  background: var(--raised);
-  border-style: dashed;
-  color: var(--ink-2);
-}
-.kv-seat.is-active {
-  box-shadow: 0 0 0 2px var(--ink);
-}
-.kv-seat-list {
-  margin-top: var(--s3);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
+  gap: 12px;
+  margin-bottom: 10px;
 }
 
-/* ---------- таблица ---------- */
-table.kv-table {
+.cg-h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.cg-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cg-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.cg-row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cg-row-buttons > * {
+  flex: 1 1 auto;
+}
+
+/* --------------------------------------------------------------- карточки */
+.cg-card {
+  display: block;
   width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-table.kv-table th {
+  padding: 16px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: inherit;
+  font: inherit;
   text-align: left;
-  font-size: 0.75rem;
+}
+
+.cg-card + .cg-card {
+  margin-top: 10px;
+}
+
+.cg-list > .cg-card + .cg-card {
+  margin-top: 0;
+}
+
+.cg-card-tap {
+  cursor: pointer;
+  transition: transform 0.08s ease, background-color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cg-card-tap:active {
+  transform: scale(0.985);
+}
+
+@media (hover: hover) {
+  .cg-card-tap:hover {
+    background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  }
+}
+
+.cg-chev {
+  color: var(--faint);
+}
+
+.cg-link {
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.cg-link:disabled {
+  opacity: 0.5;
+}
+
+.cg-link.cg-danger {
+  color: var(--danger);
+  margin-top: 12px;
+}
+
+.cg-more {
+  display: block;
+  margin: 8px auto 0;
+}
+
+.cg-fineprint {
+  margin: 12px 0 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--faint);
+}
+
+/* --------------------------------------------------------------- состояния */
+.cg-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 72px 0;
+  color: var(--muted);
+}
+
+.cg-skeleton {
+  display: grid;
+  gap: 10px;
+}
+
+.cg-skel-card {
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.cg-skel-line {
+  height: 14px;
+  margin: 8px 0;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--sunken) 25%, var(--line-strong) 50%, var(--sunken) 75%);
+  background-size: 200% 100%;
+  animation: cg-shimmer 1.3s infinite linear;
+}
+
+.cg-skel-line.w40 {
+  width: 40%;
+}
+.cg-skel-line.w60 {
+  width: 60%;
+}
+.cg-skel-line.w80 {
+  width: 80%;
+}
+
+@keyframes cg-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.cg-empty {
+  padding: 28px 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+}
+
+.cg-empty-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cg-empty-title {
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.cg-empty-text {
+  margin: 6px auto 14px;
+  max-width: 34ch;
+  color: var(--muted);
+}
+
+.cg-notice {
+  display: flex;
+  gap: 12px;
+  margin: 12px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+.cg-notice-icon {
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.cg-notice-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.cg-notice-title {
+  font-weight: 650;
+  margin-bottom: 2px;
+}
+
+.cg-notice-text {
+  font-size: 16px;
+}
+
+.cg-notice-action {
+  margin-top: 4px;
+}
+
+.cg-notice.tone-ok {
+  background: var(--going-bg);
+}
+.cg-notice.tone-ok .cg-notice-icon {
+  color: var(--going);
+}
+.cg-notice.tone-warn {
+  background: var(--waiting-bg);
+}
+.cg-notice.tone-warn .cg-notice-icon {
+  color: var(--waiting);
+}
+.cg-notice.tone-demo {
+  background: var(--demo-bg);
+}
+.cg-notice.tone-demo .cg-notice-icon,
+.cg-notice.tone-demo .cg-link {
+  color: var(--demo);
+}
+.cg-notice.tone-error {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.cg-notice.tone-error .cg-notice-icon {
+  color: var(--danger);
+}
+
+/* --------------------------------------------------------------- статусы */
+.cg-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 14px;
   font-weight: 600;
-  color: var(--ink-2);
-  padding: var(--s1) var(--s2) var(--s2) 0;
-  border-bottom: 1.5px solid var(--ink);
-  /* Заголовки колонок переносятся при крупном тексте вместо обрезки. */
-  white-space: normal;
+  line-height: 1.3;
+  white-space: nowrap;
 }
-table.kv-table td {
-  padding: var(--s2) var(--s2) var(--s2) 0;
-  border-bottom: 1px solid var(--rule);
-  vertical-align: top;
+
+.st-going {
+  color: var(--going);
+  background: var(--going-bg);
 }
-table.kv-table tbody tr:last-child td {
-  border-bottom: none;
+.st-waiting {
+  color: var(--waiting);
+  background: var(--waiting-bg);
 }
-table.kv-table tbody tr:hover td {
-  background: #fbf9f4;
+.st-notgoing {
+  color: var(--notgoing);
+  background: var(--notgoing-bg);
 }
-table.kv-table tbody tr.is-active td {
-  background: #fbf9f4;
+.st-ticket {
+  color: var(--ticket);
+  background: var(--ticket-bg);
 }
-/* Раскрытая форма оформления прямо под строкой события */
-.kv-order-row > td {
-  background: var(--raised);
-  border-radius: var(--r-sm);
+.st-neutral {
+  color: var(--muted);
+  background: var(--sunken);
 }
-.kv-inline-order {
-  padding: var(--s1) 0 var(--s2);
-  /* Появление раскрытой формы — мягкий вход, только opacity/transform. */
-  animation: kv-enter 180ms ease-out;
+
+.cg-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
 }
-/* Клик по событию в каталоге: вся строка — доступная кнопка */
-.kv-eventbtn {
+
+.cg-tile {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  align-items: flex-start;
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+.cg-tile-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.cg-tile-label {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.cg-progress-wrap {
+  margin-top: 12px;
+}
+
+.cg-tripcard .cg-progress-wrap {
+  margin-top: 10px;
+}
+
+.cg-progress {
+  display: flex;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--waiting-bg);
+}
+
+.cg-progress .seg {
+  height: 100%;
+  transition: width 0.5s ease;
+}
+
+.cg-progress .seg.st-going {
+  background: var(--going);
+}
+.cg-progress .seg.st-ticket {
+  background: var(--ticket);
+}
+.cg-progress .seg.st-notgoing {
+  background: var(--notgoing);
+  opacity: 0.55;
+}
+
+.cg-progress-label {
+  margin-top: 6px;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.cg-progress-label b {
+  color: var(--text);
+}
+
+.cg-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 650;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* --------------------------------------------------------------- метки */
+.cg-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--sunken);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.cg-tag.tag-pushkin {
+  background: var(--ticket-bg);
+  color: var(--ticket);
+}
+.cg-tag.tag-free {
+  background: var(--going-bg);
+  color: var(--going);
+}
+.cg-tag.tag-demo {
+  background: var(--demo-bg);
+  color: var(--demo);
+  margin-left: 6px;
+}
+
+.cg-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.cg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cg-chip {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
   font: inherit;
-  text-align: left;
-  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
   cursor: pointer;
 }
-.kv-eventbtn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+
+.cg-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
-.kv-eventbtn .kv-muted {
+
+.cg-segmented {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--sunken);
+}
+
+.cg-segmented button {
+  flex: 1;
+  min-height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cg-segmented button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.cg-rolebar {
+  margin-bottom: 4px;
+}
+
+.cg-webback {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-}
-/* Строка-выбор выезда: кнопка, доступная с клавиатуры */
-.kv-rowbtn {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 0;
+  margin: 0 0 4px -4px;
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  color: var(--accent);
   font: inherit;
-  text-align: left;
-  color: var(--ink);
-  cursor: pointer;
-}
-.kv-rowbtn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-td.kv-key {
-  color: var(--ink-2);
-  font-size: 0.8125rem;
-  min-width: 5.5rem; /* было фиксированное 88px — при крупном тексте колонка не давит контент */
-  padding-right: var(--s3);
-}
-.kv-data {
-  font-weight: 600;
-  white-space: nowrap; /* дата/время — короткий фиксированный формат, разрыв читался бы хуже */
-}
-
-/* ---------- алерты ---------- */
-.kv-alert {
-  border: 1px solid var(--rule-strong);
-  border-left-width: 3px;
-  border-radius: var(--r-sm);
-  padding: var(--s2) var(--s3);
-  font-size: 0.875rem;
-  margin-bottom: var(--s3);
-  background: var(--sheet);
-  /* Появление сообщения — обратная связь «что-то произошло» (opacity/transform). */
-  animation: kv-enter 160ms ease-out;
-}
-.kv-alert.ok {
-  border-left-color: var(--ok);
-}
-.kv-alert.err {
-  border-left-color: var(--stop);
-}
-/* Инфо-сообщение — пояснение, не ошибка: кромка в тон primary, не красная */
-.kv-alert.info {
-  border-left-color: var(--accent);
-}
-
-/* Инлайн-подтверждение юридически значимого действия (ПЭП) */
-.kv-confirm {
-  margin-top: var(--s3);
-  padding: var(--s3);
-  border: 1px solid var(--rule-strong);
-  border-left-width: 3px; /* акцентная кромка — как у существующего .kv-alert */
-  border-left-color: var(--accent);
-  border-radius: var(--r-sm);
-  background: var(--raised);
-  animation: kv-enter 160ms ease-out;
-}
-.kv-confirm p {
-  margin: 0;
-}
-.kv-confirm .kv-actions {
-  margin-top: var(--s2);
-}
-
-/* Согласие на ПДн (152-ФЗ) и номер билета — метка с управляющим элементом */
-.kv-pdn {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s2);
-  margin-top: var(--s2);
-  font-size: 0.875rem;
-  line-height: 1.5;
-}
-.kv-pdn input[type="checkbox"] {
-  margin-top: 2px;
-  flex: 0 0 auto;
-  width: 1.25rem; /* 20px — крупнее для 50+ и ближе к WCAG-таргету */
-  height: 1.25rem;
-  accent-color: var(--accent);
-}
-.kv-pdn input[type="text"] {
-  flex: 1 1 140px;
-  padding: 0.5rem var(--s2);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--r-sm);
-  font: inherit;
-  font-size: 0.875rem;
-  background: var(--sheet);
-  color: inherit;
-}
-.kv-pdn input[type="text"]:focus-visible,
-.kv-pdn input[type="checkbox"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Выбор состава приложений пакета документов */
-.kv-attach {
-  margin-top: var(--s3);
-  padding: var(--s3);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-sm);
-  background: var(--raised);
-}
-.kv-attach legend {
-  padding: 0 var(--s1);
-  font-size: 0.8125rem;
-}
-.kv-attach .kv-chip {
-  cursor: pointer;
-}
-.kv-attach .kv-chip input[type="checkbox"] {
-  margin-right: 4px;
-  accent-color: var(--accent);
-}
-
-/* ---------- скелетон ---------- */
-.kv-skeleton {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-  /* Держим минимальную высоту карточки-заглушки: когда приходит реальный контент
-     (или код ленивого экрана), элементы ниже не «прыгают» вверх — это CLS. */
-  min-height: 120px;
-}
-.kv-skel-line,
-.kv-skel-bar {
-  min-height: 0.625rem;
-  border-radius: var(--r-sm);
-  /* Пульс прозрачностью вместо background-position: не перерисовываем каждый кадр
-     (docs/MOTION_AND_A11Y.md §4 — только opacity/transform). */
-  background: #efece5;
-  animation: kv-shimmer 1.4s ease-in-out infinite;
-}
-.kv-skel-line.w40 {
-  width: 40%;
-}
-.kv-skel-line.w60 {
-  width: 60%;
-}
-.kv-skel-line.w80 {
-  width: 80%;
-}
-.kv-skel-line.w90 {
-  width: 90%;
-}
-.kv-skel-bar {
-  height: 2.125rem;
-}
-@keyframes kv-shimmer {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
-}
-
-/* ---------- служебные мелочи ---------- */
-.kv-viewpanel {
-  border-style: dashed;
-  border-color: var(--rule-strong);
-}
-.kv-footer-note {
-  font-size: 0.75rem;
-  color: var(--ink-2);
-  margin-top: var(--s5);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
-  line-height: 1.5;
-}
-.kv-actions {
-  display: flex;
-  gap: var(--s2);
-  flex-wrap: wrap;
-  margin-top: var(--s3);
-}
-/* Отказ — деструктивная зона: отбита линией от главного действия «Отпускаю» */
-.kv-reject {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s2);
-  flex: 1 1 100%;
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
-}
-/* Файлы приказа — отдельная служебная строка, не в куче с основными действиями */
-.kv-files {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s2);
-  margin-top: var(--s3);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
-}
-.kv-files > .kv-muted {
-  margin-right: var(--s1);
-}
-a.kv-btn {
-  text-decoration: none;
-}
-/* Место ещё не распределено — явный призыв к действию */
-.kv-empty {
-  border: 1px dashed var(--rule-strong);
-  border-radius: var(--r-sm);
-  padding: var(--s4);
-  text-align: center;
-  color: var(--ink-2);
-  font-size: 0.875rem;
-}
-
-/* Зона выбора файла при импорте класса: пунктирная «ячейка для вложения» */
-.kv-dropzone {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: var(--s3);
-  padding: var(--s4);
-  border: 1px dashed var(--rule-strong);
-  border-radius: var(--r-sm);
-  background: var(--raised);
-  cursor: pointer;
-  text-align: center;
-}
-.kv-dropzone:hover {
-  background: #f1eee6;
-}
-.kv-dropzone:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.kv-dropzone b {
-  font-size: 0.875rem;
-  font-weight: 600;
-}
-.kv-skipped {
-  margin: 6px 0 0;
-  padding-left: 18px;
-  font-size: 0.8125rem;
-  color: var(--ink-2);
-  line-height: 1.5;
-}
-
-/* Выбор ребёнка: у родителя с несколькими детьми */
-.kv-childpick {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--s2);
-  margin-bottom: var(--s3);
-}
-.kv-childbtn {
-  appearance: none;
-  border: 1px solid var(--rule-strong);
-  background: var(--sheet);
-  color: var(--ink);
-  padding: 4px var(--s3);
-  min-height: 44px; /* было 32px — подняли до тап-зоны 50+ */
-  border-radius: var(--r-sm);
-  font: inherit;
-  font-size: 0.8125rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 90ms linear, transform 90ms ease;
-}
-.kv-childbtn:hover {
-  background: var(--raised);
-}
-.kv-childbtn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-.kv-childbtn.is-active {
-  border-color: var(--accent);
-  color: var(--accent-ink);
-  box-shadow: 0 0 0 1px var(--accent);
-}
-.kv-childbtn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
-/* Два родителя: кто из законных представителей подписал */
-.kv-reps {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: var(--s3);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
+/* --------------------------------------------------------------- формы */
+.cg-form {
+  display: grid;
+  gap: 14px;
 }
-.kv-rep {
+
+.cg-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cg-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cg-field-label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.cg-field-hint {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.cg-input {
+  width: 100%;
+  min-height: 52px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  appearance: none;
+}
+
+.cg-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.cg-textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.cg-form-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.cg-error {
+  margin: -6px 0 0;
+  color: var(--danger);
+  font-size: 15px;
+}
+
+.cg-file {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 64px;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cg-file input {
+  display: none;
+}
+
+.cg-check {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
+.cg-check input {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.cg-check > span {
+  display: grid;
+  gap: 2px;
+}
+
+.cg-check .cg-muted {
+  font-size: 15px;
+}
+
+/* --------------------------------------------------------------- лист */
+.cg-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.42);
+  animation: cg-fade 0.15s ease-out;
+}
+
+.cg-sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 8px var(--gutter) calc(20px + env(safe-area-inset-bottom));
+  border-radius: 20px 20px 0 0;
+  background: var(--surface);
+  animation: cg-up 0.2s ease-out;
+}
+
+.cg-sheet-grip {
+  width: 40px;
+  height: 4px;
+  margin: 0 auto 8px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.cg-sheet-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--s2);
-}
-.kv-rep-name {
-  font-size: 0.875rem;
-}
-.kv-chip.rep-signed {
-  border-color: var(--ok);
-  color: var(--ok);
-  font-weight: 600;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
-/* Публикация: ввод id чата вне MAX */
-.kv-chatpick {
-  margin-top: var(--s3);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
-}
-.kv-chatpick input[type="text"] {
-  padding: 0.5rem var(--s2);
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--r-sm);
-  background: var(--sheet);
-  font: inherit;
-  font-size: 0.875rem;
-}
-.kv-chatpick input[type="text"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.cg-sheet-title {
+  font-size: 20px;
+  font-weight: 700;
 }
 
-/* Обратный отсчёт до дедлайна сбора: срочность несёт цвет, не размер шрифта */
-.kv-countdown {
-  margin-top: 2px;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-.kv-countdown.urgent {
-  color: var(--stop);
+.cg-sheet-body > * + * {
+  margin-top: 12px;
 }
 
-/* Экстренные телефоны — служебный блок внизу ведомости, отбит линией */
-.kv-emergency {
-  /* Служебный блок: в длинном списке класса может быть за пределами экрана —
-     даём браузеру право отложить его отрисовку до подхода к вьюпорту. */
-  content-visibility: auto;
-  contain-intrinsic-size: auto 240px;
-  margin-top: var(--s4);
-  padding-top: var(--s3);
-  border-top: 1px solid var(--rule);
-}
-
-/* Ссылка-кнопка в футере (экран прозрачности): выглядит как ссылка, но это button */
-.kv-linkbtn {
-  appearance: none;
-  border: none;
-  background: none;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  color: var(--accent-ink);
-  text-decoration: underline;
+.cg-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--muted);
   cursor: pointer;
 }
-.kv-linkbtn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+
+@keyframes cg-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes cg-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0.6;
+  }
+}
+
+.cg-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(92px + env(safe-area-inset-bottom));
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: calc(100% - 32px);
+  max-width: 528px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: #1f2329;
+  color: #fff;
+  font-size: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  transform: translateX(-50%);
+  animation: cg-toast 0.2s ease-out;
+}
+
+.cg-toast .cg-icon {
+  margin-top: 2px;
+  color: #6be39a;
+}
+
+.cg-toast.tone-error .cg-icon {
+  color: #ff8b8b;
+}
+
+.cg-toast.tone-info .cg-icon {
+  color: #8cbcff;
+}
+
+@keyframes cg-toast {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+/* --------------------------------------------------------------- приветствие */
+.cg-welcome {
+  padding-top: 12px;
+}
+
+.cg-logo {
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: 60px;
+  margin-bottom: 16px;
+  border-radius: 18px;
+  background: linear-gradient(150deg, #2b8cff, #0058d6);
+  color: #fff;
+}
+
+.cg-display {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.18;
+  font-weight: 750;
+  letter-spacing: -0.015em;
+}
+
+.cg-lead {
+  margin: 10px 0 20px;
+  font-size: 18px;
+  color: var(--muted);
+}
+
+.cg-points {
+  display: grid;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding: 0;
+  list-style: none;
+}
+
+.cg-points li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.cg-points li > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.cg-points .cg-muted {
+  font-size: 15px;
+}
+
+.cg-point-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cg-demo-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1.5px solid color-mix(in srgb, var(--demo) 35%, transparent);
+  border-radius: var(--radius);
+  background: var(--demo-bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cg-demo-card:disabled {
+  opacity: 0.7;
+}
+
+.cg-demo-card > .cg-icon {
+  color: var(--demo);
+}
+
+.cg-demo-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #7c4dff;
+  color: #fff;
+}
+
+.cg-demo-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+}
+
+.cg-demo-text > span {
+  font-size: 15px;
+  color: var(--muted);
+}
+
+/* --------------------------------------------------------------- учитель */
+.cg-tripcard {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.cg-tripcard-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.cg-tripcard-title {
+  font-size: 18px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.cg-tripcard .cg-muted {
+  font-size: 15px;
+  margin-top: 2px;
+}
+
+.cg-tripcard-foot {
+  margin-top: 10px;
+}
+
+.cg-tripcard-foot .cg-status {
+  white-space: normal;
+}
+
+.cg-tripcard > .cg-chev {
+  align-self: center;
+}
+
+.cg-datebadge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 52px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cg-datebadge .d {
+  font-size: 22px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.cg-datebadge .m {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.cg-classrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.cg-classbadge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  min-width: 52px;
+  height: 52px;
+  padding: 0 8px;
+  border-radius: 12px;
+  background: var(--sunken);
+  font-size: 19px;
+  font-weight: 750;
+}
+
+.cg-classinfo {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cg-classinfo .cg-muted {
+  font-size: 15px;
+}
+
+.cg-facts,
+.cg-facts-inline {
+  display: grid;
+  gap: 10px;
+}
+
+.cg-facts-inline {
+  margin-top: 12px;
+}
+
+.cg-fact {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 16px;
+}
+
+.cg-fact > .cg-icon {
+  margin-top: 2px;
+  color: var(--muted);
+}
+
+.cg-actions-card {
+  display: grid;
+  gap: 10px;
+}
+
+.cg-actions-title {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.cg-actions-card .cg-muted {
+  margin: 0;
+  font-size: 15px;
+}
+
+.cg-doclist {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cg-doclist li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 16px;
+}
+
+.cg-doclist .cg-icon {
+  color: var(--accent);
+}
+
+.cg-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 -4px;
+}
+
+.cg-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--going);
+  animation: cg-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cg-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.cg-people {
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.cg-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cg-person:last-child {
+  border-bottom: 0;
+}
+
+.cg-person:active {
+  background: var(--sunken);
+}
+
+.cg-person-text {
+  display: grid;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.cg-person-text b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-person-text .cg-muted {
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cg-sheet-status {
+  margin-bottom: 4px;
+}
+
+.cg-dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 14px;
+  margin: 0;
+  font-size: 16px;
+}
+
+.cg-dl dt {
+  color: var(--muted);
+}
+
+.cg-dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.cg-callbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border-radius: var(--radius-sm);
+  background: var(--going-bg);
+  color: var(--going);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cg-manual {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.cg-manual .cg-row-buttons {
+  margin-top: 0;
+}
+
+.cg-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: -6px 0 16px;
+}
+
+.cg-steps span {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.cg-steps span.on {
+  background: var(--accent);
+}
+
+.cg-event {
+  border: 2px solid transparent;
+}
+
+.cg-event.selected {
+  border-color: var(--accent);
+}
+
+.cg-event-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.cg-event-title {
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.cg-event .cg-muted {
+  margin-top: 2px;
+  font-size: 15px;
+}
+
+.cg-radio {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--line-strong);
+  border-radius: 50%;
+}
+
+.cg-radio.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.cg-event-desc {
+  margin: 10px 0 0;
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.cg-picked {
+  display: grid;
+  gap: 2px;
+}
+
+.cg-preview {
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+.cg-preview-bubble {
+  padding: 12px 14px;
+  border-radius: 16px 16px 16px 4px;
+  background: var(--surface);
+  font-size: 16px;
+}
+
+.cg-preview-bubble p {
+  margin: 8px 0 0;
+}
+
+.cg-preview-buttons {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.cg-preview-buttons span {
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.cg-sendto {
+  display: grid;
+  gap: 10px;
+}
+
+.cg-invite {
+  display: grid;
+  gap: 14px;
+}
+
+.cg-invite-head {
+  display: flex;
+  gap: 12px;
+}
+
+.cg-invite-head .cg-muted {
+  margin: 4px 0 0;
+  font-size: 15px;
+}
+
+.cg-invite-icon,
+.cg-join-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.cg-qr-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  text-align: center;
+}
+
+.cg-qr {
+  padding: 10px;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.cg-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cg-code {
+  display: block;
+  max-width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--sunken);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.cg-parentbox {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.cg-parentbox .cg-callbtn {
+  justify-self: stretch;
+}
+
+/* --------------------------------------------------------------- родитель */
+.cg-childhead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.cg-childhead > div {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.cg-childhead .cg-muted {
+  font-size: 15px;
+}
+
+.cg-ptrip {
+  display: grid;
+  gap: 14px;
+}
+
+.cg-ptrip.pending {
+  border: 2px solid var(--accent);
+}
+
+.cg-ptrip-title {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.cg-ptrip .cg-facts-inline {
+  margin-top: 0;
+}
+
+.cg-question {
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.cg-question .cg-muted {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 400;
+}
+
+.cg-ptrip .cg-fineprint {
+  margin: -4px 0 0;
+}
+
+.cg-receipt {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+}
+
+.cg-receipt > div {
+  display: grid;
+  gap: 2px;
+}
+
+.cg-receipt span {
+  font-size: 15px;
+}
+
+.cg-receipt.ok {
+  background: var(--going-bg);
+}
+
+.cg-receipt.ok > .cg-icon,
+.cg-receipt.ok b {
+  color: var(--going);
+}
+
+.cg-receipt.no {
+  background: var(--notgoing-bg);
+}
+
+.cg-receipt.no > .cg-icon {
+  color: var(--notgoing);
+}
+
+.cg-ticketstep {
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--ticket-bg);
+}
+
+.cg-ticketstep .cg-muted {
+  margin: 4px 0 0;
+  font-size: 15px;
+}
+
+.cg-answered {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cg-answered-text {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  justify-items: start;
+}
+
+.cg-terms {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.cg-legal {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.cg-legal p {
+  margin: 8px 0 0;
+}
+
+.cg-join {
+  display: grid;
+  gap: 12px;
+}
+
+.cg-join p {
+  margin: 0;
+}
+
+.cg-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.cg-setting > div {
+  display: grid;
+  gap: 2px;
+}
+
+.cg-setting .cg-muted {
+  font-size: 15px;
+}
+
+/* --------------------------------------------------------------- узкие экраны */
+@media (max-width: 360px) {
+  .cg-app {
+    --gutter: 12px;
+    font-size: 16px;
+  }
+  .cg-h1 {
+    font-size: 23px;
+  }
+  .cg-display {
+    font-size: 25px;
+  }
+  .cg-tile {
+    padding: 10px 8px;
+  }
+  .cg-tile-value {
+    font-size: 24px;
+  }
+  .cg-form-row {
+    grid-template-columns: 1fr;
+  }
+  .cg-person .cg-status {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Полное отключение несущественного движения: переходы и все анимации.
-     Индикатор загрузки остаётся статичным, но видимым. */
-  * {
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
     animation: none !important;
-  }
-  .kv-spin {
-    border-top-color: var(--ink-2);
+    transition: none !important;
   }
 }
 
-@media (max-width: 420px) {
-  .kv-app {
-    padding: var(--s3) var(--s3) var(--s6);
-  }
-  table.kv-table th,
-  table.kv-table td {
-    padding: var(--s1) var(--s1) var(--s1) 0;
-  }
-  .kv-hero-title {
-    font-size: 1.25rem;
-  }
+/* Аватар окрашивается по статусу ребёнка (перекрывает базовый акцентный цвет). */
+.cg-avatar.st-going {
+  background: var(--going-bg);
+  color: var(--going);
+}
+.cg-avatar.st-waiting {
+  background: var(--waiting-bg);
+  color: var(--waiting);
+}
+.cg-avatar.st-notgoing {
+  background: var(--notgoing-bg);
+  color: var(--notgoing);
+}
+.cg-avatar.st-ticket {
+  background: var(--ticket-bg);
+  color: var(--ticket);
+}
+
+.cg-tripcard-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
 }

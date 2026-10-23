@@ -160,7 +160,7 @@ async def test_FIN_10_invite_parents_and_complete_notice(client: TestClient) -> 
     await bot.handle_update({"update_type": "message_callback", "callback": {
         "callback_id": "cb-9", "payload": f"consent:{exc_id}:{info['child_student_id']}:APPROVED",
         "user": {"user_id": USER}}, "message": {"recipient": {"chat_id": 1}}})
-    assert "едет" in fake.answers[-1]["text"]
+    assert "отпустили" in fake.answers[-1]["text"]
     # Остальные отвечают — учителю приходит итог с кнопкой документов
     with Session(engine) as s:
         exc = s.get(Excursion, exc_id)

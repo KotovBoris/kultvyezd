@@ -158,6 +158,7 @@ class Excursion(SQLModel, table=True):
     order_basis: str = "План воспитательной работы школы"
     responsible_teacher: str = ""
     meeting_point: str = "у главного входа школы"
+    escorts: str = ""  # сопровождающие взрослые (помощник руководителя группы)
     created_by_user_id: Optional[int] = Field(default=None, index=True)
     # Учителю один раз сообщаем, что ответили все родители.
     teacher_notified_complete: bool = False
@@ -238,6 +239,8 @@ class UserProfile(SQLModel, table=True):
     first_name: str = ""
     last_name: str = ""
     role: Optional[str] = None  # teacher | parent
+    # Соглашение об использовании ПЭП и отдельное согласие на обработку ПДн (156-ФЗ).
+    terms_accepted_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     @property

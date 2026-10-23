@@ -259,6 +259,7 @@ def dashboard(session: Session, excursion: Excursion) -> dict:
                 "signed_by_name": p.signed_by_name,
                 "signed_by_phone": p.signed_by_phone,
                 "signed_by_max_user_id": p.signed_by_max_user_id,
+                "signed_source": p.signed_source,
                 "signed_at": p.signed_at,
                 "rejection_reason": p.rejection_reason,
                 "ticket_number": p.ticket_number,

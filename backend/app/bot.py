@@ -54,6 +54,11 @@ def first_name(full_name: str) -> str:
     return parts[1] if len(parts) >= 2 else full_name
 
 
+def quoted(title: str) -> str:
+    """Название в кавычках-ёлочках, если их ещё нет: «Научное шоу «Физика»» выглядит неряшливо."""
+    return title if "«" in title else f"«{title}»"
+
+
 def app_button(text: str, payload: str = "") -> dict:
     return open_app_button(text, settings.MAX_BOT_USERNAME, payload)
 
@@ -222,59 +227,66 @@ class BotService:
 
     # ------------------------------------------------------------------ карточки
     def _trip_lines(self, excursion: Excursion) -> list[str]:
-        lines = [f"«{excursion.title}»", f"Где: {excursion.location_name}"]
+        """Что, когда, деньги, кто ведёт — не длиннее 4 строк, словами, без канцелярита."""
+        lines = [f"{quoted(excursion.title)} — {excursion.location_name}"]
         when = human_date(excursion.event_date)
         if excursion.gathering_time:
             when += f", сбор в {excursion.gathering_time:%H:%M} {excursion.meeting_point}"
+        if excursion.return_time:
+            when += f", вернёмся к {excursion.return_time:%H:%M}"
         lines.append(f"Когда: {when}")
         if excursion.ticket_price:
-            price = f"Билет: {excursion.ticket_price:.0f} ₽, оплата в кассе учреждения"
+            price = f"Билет {excursion.ticket_price:.0f} ₽ — оплачиваете сами в кассе"
             if excursion.is_pushkin_card:
-                price += " (можно «Пушкинской картой»)"
-            lines.append(price)
+                price += " или «Пушкинской картой» ребёнка (14+)"
+            lines.append(price + ". Школа деньги не собирает.")
         else:
-            lines.append("Вход бесплатный")
+            lines.append("Вход бесплатный.")
+        if excursion.responsible_teacher:
+            lines.append(f"Ведёт: {excursion.responsible_teacher}")
         return lines
 
     def _parent_card(self, excursion: Excursion, student_name: str, participant) -> tuple[str, list[dict]]:
         """Текст и кнопки карточки выезда для родителя — по текущему статусу ребёнка."""
-        child = first_name(student_name)
+
         lines = self._trip_lines(excursion)
         open_btn = [app_button("Подробнее", f"trip_{excursion.id}")]
         if participant.consent_status == ConsentStatus.PENDING:
-            head = f"Приглашение на выезд для: {student_name}"
             deadline = human_deadline(excursion.deadline)
-            tail = [f"Ответьте, пожалуйста, до {deadline}." if deadline else "Ответьте, пожалуйста."]
+            tail = f"Ответьте до {deadline}." if deadline else "Ответьте, пожалуйста."
             keyboard = inline_keyboard([
-                [callback_button(f"Отпускаю ({child})", f"consent:{excursion.id}:{participant.student_id}:APPROVED")],
-                [callback_button("Не сможет поехать", f"consent:{excursion.id}:{participant.student_id}:REJECTED")],
+                [callback_button("✅ Отпускаю", f"consent:{excursion.id}:{participant.student_id}:APPROVED")],
+                [callback_button("✖ Не сможет", f"consent:{excursion.id}:{participant.student_id}:REJECTED")],
                 open_btn,
             ])
-            return "\n".join([head, "", *lines, "", *tail]), [keyboard]
+            text = "\n".join([f"{student_name}: приглашение на выезд", "", *lines, "", tail,
+                              "Ваш ответ кнопкой считается подписью."])
+            return text, [keyboard]
 
         when = participant.signed_at.strftime("%d.%m в %H:%M") if participant.signed_at else ""
         can_change = not (excursion.deadline and datetime.utcnow() > excursion.deadline)
         change_btn = [callback_button("Изменить ответ", f"change:{excursion.id}:{participant.student_id}")]
         if participant.consent_status == ConsentStatus.REJECTED:
             text = "\n".join([
-                f"{student_name}: не едет ({participant.rejection_reason or 'причина не указана'}).",
+                f"Готово. {student_name}: вы ответили «не сможет» "
+                f"({(participant.rejection_reason or 'без причины').lower()}).",
                 f"Ответ записан{', ' + when if when else ''}. Классный руководитель уже видит его.",
                 "", *lines,
             ])
             return text, [inline_keyboard([open_btn] + ([change_btn] if can_change else []))]
 
         rows: list[list[dict]] = []
-        status = f"{student_name}: едет. Согласие подписано{', ' + when if when else ''}."
-        extra: list[str] = []
+        status = f"Готово. {student_name}: вы отпустили на выезд ({human_date(excursion.event_date)})."
+        extra: list[str] = [f"Подпись записана{', ' + when if when else ''}."]
         if participant.ticket_status == TicketStatus.WAITING_PAYMENT:
-            extra.append("Остался билет: купите его на сайте учреждения и отметьте здесь.")
+            extra.append("Остался билет: купите его сами и нажмите «Билет купили».")
             if excursion.ticket_sale_url:
                 rows.append([link_button("Купить билет", excursion.ticket_sale_url)])
-            rows.append([callback_button("Билет куплен", f"ticket:{excursion.id}:{participant.student_id}")])
+            rows.append([callback_button("Билет купили", f"ticket:{excursion.id}:{participant.student_id}")])
         elif participant.ticket_status == TicketStatus.PAID:
-            extra.append("Билет отмечен. Всё готово!")
+            extra.append("Билет отмечен — всё готово.")
         else:
-            extra.append("Всё готово, ничего больше делать не нужно.")
+            extra.append("Больше ничего делать не нужно.")
         rows.append(open_btn)
         if can_change and participant.ticket_status != TicketStatus.PAID:
             rows.append(change_btn)
@@ -464,7 +476,7 @@ class BotService:
             verdict = "зафиксирован отказ"
         by = participant.signed_by_name or "законный представитель"
         when = participant.signed_at.strftime("%d.%m в %H:%M") if participant.signed_at else ""
-        text = f"По выезду «{excursion.title}» ({student.full_name}) {verdict} ({by}{', ' + when if when else ''})."
+        text = f"По выезду {quoted(excursion.title)} ({student.full_name}) {verdict} ({by}{', ' + when if when else ''})."
         for parent in others:
             if parent.is_virtual:
                 continue
@@ -486,7 +498,7 @@ class BotService:
             session.commit()
             title, class_title = excursion.title, klass.title
         text = (
-            f"{class_title}: ответили все родители по выезду «{title}».\n"
+            f"{class_title}: ответили все родители по выезду {quoted(title)}.\n"
             f"Едут: {stats['going']}, не едут: {stats['not_going']}."
         )
         if stats["waiting_ticket"]:
@@ -520,7 +532,7 @@ class BotService:
             caption = ""
             if idx == 0:
                 caption = (
-                    f"Документы по выезду «{excursion.title}»: приказ, список группы ({stats['going']} чел.), "
+                    f"Документы по выезду {quoted(excursion.title)}: приказ, список группы ({stats['going']} чел.), "
                     "реестр согласий и лист инструктажа. PDF — для печати, DOCX — если нужно поправить шапку."
                 )
             result = await self.client.send_document(filename=filename, token=token, caption=caption,
@@ -566,7 +578,7 @@ class BotService:
         return [inline_keyboard([[approve], [reject]])]
 
     async def publish_to_chat(self, excursion: Excursion, chat_id: int) -> dict | None:
-        lines = [f"Новый выезд класса: {excursion.title}", *self._trip_lines(excursion)[1:]]
+        lines = ["Новый выезд класса:", *self._trip_lines(excursion)]
         if excursion.deadline:
             lines.append(f"Ответить до: {human_deadline(excursion.deadline)}")
         lines.append("")
@@ -577,7 +589,7 @@ class BotService:
     async def tag_unactivated(self, excursion: Excursion, chat_id: int, names: list[str]) -> dict | None:
         listing = "\n".join(f"— {n}" for n in names)
         text = (
-            f"По выезду «{excursion.title}» ждём ответа родителей:\n"
+            f"По выезду {quoted(excursion.title)} ждём ответа родителей:\n"
             f"{listing}\n"
             "Откройте ClassGo, подтвердите номер телефона — и сразу увидите приглашение."
         )

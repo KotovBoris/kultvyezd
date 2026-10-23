@@ -244,14 +244,14 @@ def main() -> int:
             "payload": None,
         })
         got_greeting = wait_until(
-            lambda: any(m["kind"] == "message" and m["body"].get("text", "").startswith("👋")
+            lambda: any(m["kind"] == "message" and "ClassGo" in m["body"].get("text", "")
                         for m in http("GET", f"{emu_base}/_outbox")[1]["messages"]),
             timeout=20,
         )
         checks.ok(got_greeting, "бот поприветствовал родителя (bot_started через long polling)")
 
         outbox = http("GET", f"{emu_base}/_outbox")[1]["messages"]
-        greet = next((m for m in outbox if m["kind"] == "message" and m["body"].get("text", "").startswith("👋")), None)
+        greet = next((m for m in outbox if m["kind"] == "message" and "ClassGo" in m["body"].get("text", "")), None)
         btn_types = set()
         if greet:
             for row in greet["body"].get("attachments", [{}])[0].get("payload", {}).get("buttons", []):

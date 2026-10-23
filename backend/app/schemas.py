@@ -137,6 +137,7 @@ class ExcursionCreate(BaseModel):
     is_pushkin_card: bool | None = None
     order_basis: str | None = None
     meeting_point: str | None = None
+    escorts: str | None = None
     notify_parents: bool = True
 
 
@@ -154,6 +155,7 @@ class ParticipantRow(BaseModel):
     signed_by_name: str | None = None
     signed_by_phone: str | None = None
     signed_by_max_user_id: int | None = None
+    signed_source: str | None = None
     signed_at: datetime | None = None
     rejection_reason: str | None = None
     ticket_number: str | None = None
@@ -185,6 +187,7 @@ class ExcursionOut(BaseModel):
     school_name: str
     responsible_teacher: str
     meeting_point: str = ""
+    escorts: str = ""
     class_title: str = ""
     is_demo: bool = False
     stats: ExcursionStats | None = None
@@ -288,6 +291,7 @@ class MeOut(BaseModel):
     has_demo: bool = False
     classes_count: int = 0
     children_count: int = 0
+    terms_accepted: bool = False
     bot_username: str = ""
 
 

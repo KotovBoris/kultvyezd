@@ -95,7 +95,7 @@ def create_sandbox(session: Session, user_id: int, user_name: str = "") -> dict:
         return sandbox_info(session, existing, user_id, created=False)
 
     school = _school(session)
-    teacher = user_name or "Вы (классный руководитель)"
+    teacher = user_name or "Иванова Анна Сергеевна (демо)"
     klass = SchoolClass(
         grade="7", letter="Б", school_id=school.id, school_name=school.name, school_number="",
         teacher_name=teacher, owner_user_id=user_id, teacher_max_id=user_id,
@@ -113,7 +113,7 @@ def create_sandbox(session: Session, user_id: int, user_name: str = "") -> dict:
         session.refresh(student)
         if idx == 0:
             session.add(ParentContact(
-                student_id=student.id, full_name=user_name or "Вы (демо-родитель)", phone_number="",
+                student_id=student.id, full_name=user_name or "Сафина Алина Маратовна (демо)", phone_number="",
                 role=role, max_user_id=user_id, confirmed=True,
             ))
         else:
@@ -138,7 +138,8 @@ def _create_sample_excursion(session: Session, klass: SchoolClass) -> Excursion 
         event_date=date.today() + timedelta(days=9),
         gathering_time=datetime.strptime("09:30", "%H:%M").time(),
         return_time=datetime.strptime("13:30", "%H:%M").time(),
-        deadline=now + timedelta(days=3),
+        # 18:00 по Москве (15:00 UTC) через три дня — как поставил бы учитель.
+        deadline=datetime.combine(date.today() + timedelta(days=3), datetime.min.time()) + timedelta(hours=15),
         ticket_price=event.price, ticket_sale_url=event.ticket_url,
         is_pushkin_card=event.pushkin_eligible, status=ExcursionStatus.VOTING,
         school_name=klass.school_name, responsible_teacher=klass.teacher_name,
@@ -250,12 +251,12 @@ def schedule_virtual_answers(session: Session, excursion: Excursion, now: dateti
     rng.shuffle(virtual)
     silent = virtual[:2]
     rejecting = virtual[2:3]
-    delay = 6.0
+    delay = 1.0
     planned = 0
     for sid in virtual:
         if sid in silent:
             continue
-        delay += rng.uniform(3, 9)
+        delay += rng.uniform(1.5, 4.5)
         decision = "REJECTED" if sid in rejecting else "APPROVED"
         session.add(DemoAnswer(
             excursion_id=excursion.id, student_id=sid, decision=decision,
@@ -266,7 +267,7 @@ def schedule_virtual_answers(session: Session, excursion: Excursion, now: dateti
         if decision == "APPROVED" and excursion.ticket_price > 0 and rng.random() < 0.6:
             session.add(DemoAnswer(
                 excursion_id=excursion.id, student_id=sid, decision="TICKET",
-                due_at=now + timedelta(seconds=delay + rng.uniform(15, 40)),
+                due_at=now + timedelta(seconds=delay + rng.uniform(8, 20)),
             ))
     session.commit()
     return planned

@@ -1,72 +1,88 @@
-export interface MaxInitUser {
+/**
+ * Обёртка над MAX Bridge (window.WebApp, скрипт https://st.max.ru/js/max-web-app.js).
+ *
+ * Важное про платформу (dev.max.ru + код web.max.ru):
+ * — openLink, downloadFile и shareMaxContent требуют клика пользователя: вызывать
+ *   синхронно в обработчике, ссылки готовить заранее;
+ * — в web.max.ru не работают haptic, QR-сканер, DeviceStorage — только на телефоне;
+ * — localStorage в iframe веб-версии эфемерный, поэтому каждый запрос к API
+ *   несёт подписанный initData в заголовке, а состояние хранится на сервере.
+ */
+
+type Platform = "ios" | "android" | "desktop" | "web";
+
+interface MaxUser {
   id: number;
   first_name?: string;
   last_name?: string;
   username?: string;
-  language_code?: string;
+  photo_url?: string;
 }
 
-export interface MaxInitData {
-  query_id?: string;
-  auth_date?: number;
-  hash?: string;
-  user?: MaxInitUser;
-  chat?: { id: number; type: string };
-  start_param?: string;
+interface WebAppApi {
+  initData?: string;
+  initDataUnsafe?: { user?: MaxUser; start_param?: string; chat?: { id: number; type: string } };
+  platform?: Platform | null;
+  version?: string | null;
+  deviceName?: string | null;
+  ready?: () => void;
+  close?: () => void;
+  BackButton?: { show(): void; hide(): void; onClick(cb: () => void): void; offClick(cb: () => void): void };
+  HapticFeedback?: {
+    impactOccurred(style: "light" | "medium" | "heavy" | "soft" | "rigid"): Promise<unknown>;
+    notificationOccurred(type: "success" | "error" | "warning"): Promise<unknown>;
+  };
+  requestContact?: () => Promise<{ phone: string; authDate: string | number; hash: string }>;
+  enableClosingConfirmation?: () => void;
+  disableClosingConfirmation?: () => void;
+  openLink?: (url: string) => void;
+  openMaxLink?: (url: string) => void;
+  downloadFile?: (url: string, fileName: string) => Promise<{ status: string }>;
+  shareMaxContent?: (p: { text?: string; link?: string }) => Promise<{ status: string }>;
 }
 
 declare global {
   interface Window {
-    WebApp?: any;
+    WebApp?: WebAppApi;
   }
 }
 
-export function bridge(): any | undefined {
-  return typeof window !== "undefined" ? window.WebApp : undefined;
-}
+const wa = (): WebAppApi | undefined => (typeof window !== "undefined" ? window.WebApp : undefined);
 
 export function isInsideMax(): boolean {
-  return Boolean(bridge() && bridge()?.initData);
+  return Boolean(wa()?.initData);
 }
 
-export function platform(): "ios" | "android" | "desktop" | "web" {
-  return (bridge()?.platform as any) ?? "web";
+export function initData(): string {
+  return wa()?.initData ?? "";
 }
 
-export function maxVersion(): string {
-  return bridge()?.version ?? "unknown";
+export function platform(): Platform {
+  return (wa()?.platform as Platform) || "web";
 }
 
-export function deviceName(): string {
-  return bridge()?.deviceName ?? "browser";
+export function isMobile(): boolean {
+  const p = platform();
+  return isInsideMax() && (p === "ios" || p === "android");
 }
 
-export function initDataUnsafe(): MaxInitData | null {
-  try {
-    return bridge()?.initDataUnsafe ?? null;
-  } catch {
-    return null;
-  }
+export function maxUser(): MaxUser | null {
+  return wa()?.initDataUnsafe?.user ?? null;
 }
 
 export function startParam(): string | null {
-  const fromBridge = initDataUnsafe()?.start_param;
+  const fromBridge = wa()?.initDataUnsafe?.start_param;
   if (fromBridge) return fromBridge;
   const url = new URL(window.location.href);
-  return url.searchParams.get("startapp") || url.searchParams.get("student_id");
+  return url.searchParams.get("startapp") || url.searchParams.get("WebAppStartParam");
 }
 
-export function currentUserId(): number | null {
-  const fromBridge = initDataUnsafe()?.user?.id;
-  if (fromBridge) return fromBridge;
+/** Вне MAX (веб-проверка экспертом) — стабильный демо-идентификатор этого браузера. */
+export function webDemoUserId(): number | null {
+  if (isInsideMax()) return null;
   const url = new URL(window.location.href);
   const raw = url.searchParams.get("user_id");
-  return raw && /^\d+$/.test(raw) ? Number(raw) : null;
-}
-
-export function effectiveUserId(): number {
-  const known = currentUserId();
-  if (known) return known;
+  if (raw && /^\d+$/.test(raw)) return Number(raw);
   try {
     const stored = localStorage.getItem("classgo_demo_uid");
     if (stored && /^\d+$/.test(stored)) return Number(stored);
@@ -78,18 +94,93 @@ export function effectiveUserId(): number {
   }
 }
 
-export function downloadFile(url: string, fileName: string): void {
-  const w = bridge();
-  if (isInsideMax() && typeof w?.downloadFile === "function") {
+export function ready(): void {
+  try {
+    wa()?.ready?.();
+  } catch {
+    /* необязательно */
+  }
+}
+
+let backHandler: (() => void) | null = null;
+
+/** Системная кнопка «Назад» в шапке MAX вместо собственной. */
+export function setBackButton(handler: (() => void) | null): void {
+  const back = wa()?.BackButton;
+  if (!back) return;
+  if (backHandler) back.offClick(backHandler);
+  backHandler = handler;
+  if (handler) {
+    back.onClick(handler);
+    back.show();
+  } else {
+    back.hide();
+  }
+}
+
+export function setClosingConfirmation(on: boolean): void {
+  try {
+    if (on) wa()?.enableClosingConfirmation?.();
+    else wa()?.disableClosingConfirmation?.();
+  } catch {
+    /* необязательно */
+  }
+}
+
+export const haptic = {
+  tap(): void {
+    if (isMobile()) void wa()?.HapticFeedback?.impactOccurred("light").catch(() => undefined);
+  },
+  ok(): void {
+    if (isMobile()) void wa()?.HapticFeedback?.notificationOccurred("success").catch(() => undefined);
+  },
+  warn(): void {
+    if (isMobile()) void wa()?.HapticFeedback?.notificationOccurred("warning").catch(() => undefined);
+  },
+};
+
+export interface VerifiedContact {
+  phone: string;
+  authDate: string;
+  hash: string;
+}
+
+/** Номер телефона, подтверждённый MAX (подпись проверяет сервер). */
+export async function requestContact(): Promise<VerifiedContact | null> {
+  const fn = wa()?.requestContact;
+  if (!fn || !isInsideMax()) return null;
+  try {
+    const r = await fn();
+    return { phone: String(r.phone), authDate: String(r.authDate), hash: String(r.hash) };
+  } catch {
+    return null;
+  }
+}
+
+/** Открыть внешнюю ссылку (сайт музея). Вызывать синхронно в onClick. */
+export function openLink(url: string): void {
+  const fn = wa()?.openLink;
+  if (isInsideMax() && fn) {
     try {
-      w.downloadFile(url, fileName);
+      fn(url);
       return;
     } catch {
-      /* fallthrough */
+      /* ниже — запасной путь */
     }
   }
+  window.open(url, "_blank", "noopener");
+}
+
+/** Скачать файл. В MAX — нативный диалог (только https и только из клика). */
+export function downloadFile(url: string, fileName: string): void {
+  const absolute = new URL(url, window.location.href).toString();
+  const fn = wa()?.downloadFile;
+  if (isInsideMax() && fn && absolute.startsWith("https://")) {
+    void fn(absolute, fileName).catch(() => window.open(absolute, "_blank", "noopener"));
+    return;
+  }
   const a = document.createElement("a");
-  a.href = url;
+  a.href = absolute;
   a.download = fileName;
   a.rel = "noopener";
   document.body.appendChild(a);
@@ -97,48 +188,47 @@ export function downloadFile(url: string, fileName: string): void {
   a.remove();
 }
 
-export function openLink(url: string): void {
-  const w = bridge();
-  if (isInsideMax() && typeof w?.openLink === "function") {
+/**
+ * Поделиться в чат MAX (выбор чата внутри мессенджера) — работает и в веб-версии.
+ * Вне MAX — системный шеринг или копирование в буфер. Возвращает способ.
+ */
+export async function shareToChat(text: string, link: string): Promise<"shared" | "copied" | "cancelled"> {
+  const fn = wa()?.shareMaxContent;
+  if (isInsideMax() && fn) {
     try {
-      w.openLink(url);
-      return;
+      const r = await fn({ text, link });
+      return r?.status === "shared" ? "shared" : "cancelled";
     } catch {
-      /* fallthrough */
+      /* запасной путь ниже */
     }
   }
-  window.open(url, "_blank", "noopener");
-}
-
-export function fileUrl(url: string): string {
-  return url;
-}
-
-export async function requestContact(): Promise<{ phone: string; authDate: string; hash: string } | null> {
-  const w = bridge();
-  if (!w?.requestContact) return null;
   try {
-    return await w.requestContact();
+    if (navigator.share) {
+      await navigator.share({ text, url: link });
+      return "shared";
+    }
   } catch {
-    return null;
+    return "cancelled";
+  }
+  try {
+    await navigator.clipboard.writeText(`${text}\n${link}`);
+    return "copied";
+  } catch {
+    return "cancelled";
   }
 }
 
-export function showBackButton(onClick: () => void): void {
-  const w = bridge();
-  if (!w?.BackButton) return;
-  w.BackButton.onClick(onClick);
-  w.BackButton.show();
-}
-
-export function hideBackButton(): void {
-  bridge()?.BackButton?.hide();
-}
-
-export function haptic(): void {
+export async function copyText(text: string): Promise<boolean> {
   try {
-    bridge()?.HapticFeedback?.impactOccurred?.("light");
+    await navigator.clipboard.writeText(text);
+    return true;
   } catch {
-    /* optional */
+    return false;
   }
+}
+
+/** Ссылка на телефон для звонка родителю в одно касание. */
+export function telHref(phone: string | null | undefined): string | null {
+  const digits = (phone ?? "").replace(/[^\d+]/g, "");
+  return digits.length >= 10 ? `tel:${digits}` : null;
 }

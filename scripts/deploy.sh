@@ -45,7 +45,7 @@ fi
 ROOT="${CLASSGO_ROOT:-$HOME/classgo}"
 ENV_SRC="${CLASSGO_ENV:-$HOME/.env}"
 REPO="https://github.com/KotovBoris/kultvyezd.git"
-BRANCH="main"
+BRANCH="${CLASSGO_BRANCH:-main}"  # ветку можно выкатить: CLASSGO_BRANCH=final-polish ~/run.sh
 HEALTH_HTTP="http://127.0.0.1/healthz"
 HEALTH_HTTPS="${PUBLIC_ORIGIN}/healthz"
 
