@@ -783,6 +783,11 @@ async def post_consent(excursion_id: int, payload: ConsentRequest, request: Requ
                 raise HTTPException(status_code=403, detail="Бумажный бланк отмечает классный руководитель")
         elif not any(p.max_user_id == caller.user_id for p in services.student_parents(session, payload.student_id)):
             raise HTTPException(status_code=403, detail="Ответить может только родитель этого ученика")
+        else:
+            profile = session.exec(select(UserProfile).where(UserProfile.max_user_id == caller.user_id)).first()
+            if not (profile and profile.terms_accepted_at):
+                raise HTTPException(status_code=409, detail="Сначала примите соглашение об электронной подписи "
+                                                            "и согласие на обработку данных")
     elif settings.MAX_VALIDATE_INIT_DATA or settings.bot_enabled:
         raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX, чтобы ответить")
     try:

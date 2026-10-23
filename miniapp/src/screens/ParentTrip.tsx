@@ -5,6 +5,7 @@ import { dayLong, deadlineText, firstName, formatPhone, isPast, money, stamp } f
 import { haptic, openLink, telHref } from "../max";
 import { errorText, toast, useAppState } from "../store";
 import { Card, Hero, Icon, Loader, Notice, Page, Sheet, Tag } from "../ui";
+import { Terms } from "./Terms";
 
 // Без медицинских подробностей: сведения о здоровье — особая категория ПДн (152-ФЗ, ст. 10).
 const REASONS = ["Личные причины", "Семейные обстоятельства", "Другие планы"];
@@ -244,6 +245,9 @@ export default function ParentTrip({ excursionId, studentId }: { excursionId: nu
     return (
       <Page>{error ? <Notice tone="error" icon="info" title="Не удалось открыть выезд">{error}</Notice> : <Loader />}</Page>
     );
+  }
+  if (me && !me.terms_accepted && trip.consent_status === "PENDING" && !trip.cancelled) {
+    return <Terms children={[child]} />;
   }
   return (
     <Page>

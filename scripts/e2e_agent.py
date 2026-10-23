@@ -276,7 +276,9 @@ def main() -> int:
         checks.ok(status == 201 and exc.get("id"), "выезд создан по событию «Пушкинской карты»")
         exc_id = exc["id"]
 
-        # --- Шаг 3. Родитель нажимает кнопку «Отпускаю ребёнка» в чате ---
+        # --- Шаг 3. Родитель нажимает кнопку «Да, пойдёт» в чате ---
+        # Соглашение о ПЭП и согласие на ПДн родитель принимает один раз до первого ответа.
+        http("POST", f"{api_base}/api/v1/me/accept-terms?user_id=424242")
         http("POST", f"{emu_base}/_inject", {
             "update_type": "message_callback", "timestamp": int(time.time() * 1000),
             "callback": {

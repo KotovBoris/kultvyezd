@@ -131,6 +131,7 @@ async def test_BOT_6_callback_cmd_trips() -> None:
 async def test_BOT_7_callback_consent_approved() -> None:
     exc_id, sid = _fresh_excursion_and_student()
     fake = FakeClient()
+    BotService._accept_terms(424242)
     await BotService(client=fake).handle_update(_callback(f"consent:{exc_id}:{sid}:APPROVED"))
     with Session(engine) as s:
         p = _participant(s, exc_id, sid)
@@ -141,6 +142,7 @@ async def test_BOT_7_callback_consent_approved() -> None:
 async def test_BOT_8_callback_consent_rejected() -> None:
     exc_id, sid = _fresh_excursion_and_student()
     fake = FakeClient()
+    BotService._accept_terms(424242)
     await BotService(client=fake).handle_update(_callback(f"consent:{exc_id}:{sid}:REJECTED"))
     with Session(engine) as s:
         p = _participant(s, exc_id, sid)

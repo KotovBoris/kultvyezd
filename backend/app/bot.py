@@ -26,6 +26,7 @@ from .models import (
     Student,
     TicketStatus,
     TrafficLight,
+    UserProfile,
 )
 
 log = logging.getLogger("classgo.bot")
@@ -292,7 +293,7 @@ class BotService:
 
         if participant.consent_status == ConsentStatus.PENDING:
             deadline = human_deadline(excursion.deadline)
-            school = f" ({klass.school_name})" if klass and klass.school_name else ""
+            school = f", {klass.school_name}," if klass and klass.school_name else ""
             keyboard = inline_keyboard([
                 [callback_button(f"✅ Да, {name} пойдёт", f"consent:{excursion.id}:{participant.student_id}:APPROVED")],
                 [callback_button(f"Нет, {name} не пойдёт", f"consent:{excursion.id}:{participant.student_id}:REJECTED")],
@@ -300,6 +301,7 @@ class BotService:
             ])
             text = "\n".join([
                 f"{head} — приглашение на выезд",
+                "",
                 f"Здравствуйте! Классный руководитель {teacher}{school} зовёт класс:",
                 "",
                 *lines,
@@ -317,17 +319,17 @@ class BotService:
             text = "\n".join([
                 f"Готово: вы ответили, что {name} не пойдёт ({(participant.rejection_reason or 'без причины').lower()}).",
                 f"{head}. Ответ записан{' ' + when if when else ''}, учитель уже видит его.",
-                "", *lines, contact,
+                "", *lines[:2], contact,  # без строки про билет — ребёнок не идёт
             ])
             return text, [inline_keyboard([open_btn] + ([change_btn] if can_change else []))]
 
         rows: list[list[dict]] = []
         status = f"Готово: {name} идёт на выезд — {human_date(excursion.event_date)}."
         extra: list[str] = [f"{head}. Подпись записана{' ' + when if when else ''}."]
+        tail: list[str] = []
         if excursion.ticket_price:
             # Учитель оплату не видит и о ней не напоминает: семья решает сама (ВК-2227/08).
-            extra.append("Билет семья покупает сама, если ещё не купила. Трудности с оплатой — скажите "
-                         "классному руководителю.")
+            tail.append("Трудности с оплатой билета — скажите классному руководителю.")
             if excursion.ticket_sale_url:
                 rows.append([link_button("Сайт учреждения", excursion.ticket_sale_url)])
         else:
@@ -335,7 +337,7 @@ class BotService:
         rows.append(open_btn)
         if can_change:
             rows.append(change_btn)
-        return "\n".join([status, *extra, "", *lines, contact]), [inline_keyboard(rows)]
+        return "\n".join([status, *extra, "", *lines, *tail, contact]), [inline_keyboard(rows)]
 
     # ------------------------------------------------------------------ кнопки
     async def _on_callback(self, update: dict) -> None:
@@ -430,16 +432,43 @@ class BotService:
             await self.client.answer_callback(callback_id, text=text, attachments=keyboard)
             return
 
-        if not payload.startswith("consent:"):
+        if payload.startswith("paper:"):
+            _, exc_id_s, student_id_s = payload.split(":", 2)
+            with Session(engine) as session:
+                excursion = session.get(Excursion, int(exc_id_s))
+                klass = session.get(SchoolClass, excursion.class_id) if excursion else None
+                if user_id:
+                    services.set_notifications(session, user_id, False)  # напоминания в MAX больше не шлём
+            teacher = (klass.teacher_name if klass else "") or "классного руководителя"
+            await self.client.answer_callback(
+                callback_id,
+                text=f"Хорошо, ответите на бумаге. Бланк согласия — у классного руководителя ({teacher}). "
+                     "Напоминаний в MAX больше не будет. Передумаете — нажмите «Назад».",
+                attachments=[inline_keyboard([[callback_button("← Назад", f"back:{exc_id_s}:{student_id_s}")]])],
+            )
+            return
+
+        if not payload.startswith(("consent:", "terms:")):
             return
         try:
-            _, exc_id_s, student_id_s, decision = payload.split(":", 3)
+            if payload.startswith("terms:"):
+                _, step_s, exc_id_s, student_id_s, decision = payload.split(":", 4)
+                step = int(step_s)
+            else:
+                _, exc_id_s, student_id_s, decision = payload.split(":", 3)
+                step = 0
             exc_id_i, student_id_i = int(exc_id_s), int(student_id_s)
         except ValueError:
             await self.client.answer_callback(callback_id, notification="Некорректная команда.")
             return
+        if step == 2 and user_id:
+            self._accept_terms(user_id)
+        if step == 1 or (user_id and not self._terms_accepted(user_id)):
+            # Один раз перед первым ответом: соглашение о ПЭП и отдельное согласие на ПДн.
+            await self._ask_terms(callback_id, 2 if step == 1 else 1, exc_id_i, student_id_i, decision)
+            return
         if decision == "REJECTED":
-            # Сначала уточняем причину — учителю важно отличать болезнь от отказа.
+            # Сначала уточняем причину — общими словами, без сведений о здоровье (152-ФЗ, ст. 10).
             with Session(engine) as session:
                 participant = services.get_participant(session, exc_id_i, student_id_i)
                 excursion = session.get(Excursion, exc_id_i)
@@ -449,9 +478,11 @@ class BotService:
                     await self.client.answer_callback(callback_id, text=text, attachments=keyboard,
                                                       notification="Ответ уже записан")
                     return
+            child = first_name(student.full_name) if student else "ребёнок"
             await self.client.answer_callback(
                 callback_id,
-                text="Почему не сможет поехать? Учитель увидит причину.",
+                text=f"Почему {child} не пойдёт? Учитель увидит только этот вариант — подробности объяснять "
+                     "не нужно.",
                 attachments=[inline_keyboard([
                     [callback_button(label, f"reason:{exc_id_i}:{student_id_i}:{code}")]
                     for code, label in REJECT_REASONS.items()
@@ -459,6 +490,61 @@ class BotService:
             )
             return
         await self._apply_bot_consent(callback_id, user_id, exc_id_i, student_id_i, decision, None)
+
+    @staticmethod
+    def _terms_accepted(user_id: int) -> bool:
+        with Session(engine) as session:
+            profile = session.exec(select(UserProfile).where(UserProfile.max_user_id == user_id)).first()
+            return bool(profile and profile.terms_accepted_at)
+
+    @staticmethod
+    def _accept_terms(user_id: int) -> None:
+        with Session(engine) as session:
+            profile = session.exec(select(UserProfile).where(UserProfile.max_user_id == user_id)).first()
+            profile = profile or UserProfile(max_user_id=user_id)
+            if not profile.terms_accepted_at:
+                profile.terms_accepted_at = datetime.utcnow()
+                session.add(profile)
+                session.commit()
+                services.set_notifications(session, user_id, True)  # если раньше выбирал «на бумаге»
+
+    async def _ask_terms(self, callback_id: str, step: int, exc_id: int, student_id: int, decision: str) -> None:
+        """Те же тексты, что в мини-приложении (ParentHome → Terms), коротко для чата."""
+        with Session(engine) as session:
+            excursion = session.get(Excursion, exc_id)
+            klass = session.get(SchoolClass, excursion.class_id) if excursion else None
+        school = (klass.school_name if klass else "") or "школа"
+        if step == 1:
+            text = "\n".join([
+                "Один раз перед первым ответом. Шаг 1 из 2 — соглашение об электронной подписи.",
+                "",
+                f"{school} и я, законный представитель ученика, договорились:",
+                "1. Мой ответ кнопкой в ClassGo — простая электронная подпись (ст. 9 63-ФЗ); документ с ней "
+                "равнозначен бумажному с моей подписью.",
+                "2. Подписанта определяют по аккаунту MAX и его номеру телефона, совпадающему с номером у школы.",
+                "3. Так подписываются только согласия и отказы на участие ребёнка в экскурсиях.",
+                "4. Не передаю телефон и аккаунт MAX другим, об утрате сразу сообщаю классному руководителю.",
+                "5. Могу отказаться в любой момент и отвечать на бумаге.",
+            ])
+            accept = callback_button("✅ Принимаю", f"terms:1:{exc_id}:{student_id}:{decision}")
+            decline = callback_button("Отвечать на бумаге", f"paper:{exc_id}:{student_id}")
+        else:
+            text = "\n".join([
+                "Шаг 2 из 2 — согласие на обработку персональных данных (отдельный документ, ст. 9 152-ФЗ).",
+                "",
+                f"Оператор — {school}. Данные: мои ФИО, телефон, ID в MAX, статус (мать, отец, опекун); ФИО и "
+                "класс ребёнка, а при поездке автобусом — его возраст; мои ответы и их время.",
+                "Цель: участие ребёнка в экскурсиях школы — приглашения, согласия, списки, документы.",
+                "Действия: сбор, запись, хранение, уточнение, использование, передача руководителю группы и "
+                "администрации школы, удаление; автоматизированно. По поручению школы данные обрабатывает "
+                "ClassGo, сообщения идут через MAX, хранение — в России.",
+                "Срок: до конца учебного года или до отзыва — в приложении ClassGo или заявлением в школу.",
+            ])
+            accept = callback_button("✅ Даю согласие", f"terms:2:{exc_id}:{student_id}:{decision}")
+            decline = callback_button("Не даю — отвечу на бумаге", f"paper:{exc_id}:{student_id}")
+        await self.client.answer_callback(callback_id, text=text, attachments=[inline_keyboard([
+            [accept], [decline], [callback_button("← Назад", f"back:{exc_id}:{student_id}")],
+        ])])
 
     async def _apply_bot_consent(self, callback_id: str, user_id: int | None, exc_id: int,
                                  student_id: int, decision: str, reason: str | None) -> None:

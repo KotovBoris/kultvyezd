@@ -156,6 +156,7 @@ async def test_FIN_10_invite_parents_and_complete_notice(client: TestClient) -> 
     exc_id = info["excursion_ids"][0]
     sent = await bot.invite_parents(exc_id)
     assert sent == 1 and "пойдёт" in str(fake.sent[-1]["attachments"])
+    client.post("/api/v1/me/accept-terms", params={"user_id": USER})
     # Пользователь отвечает в боте — карточка заменяется статусом
     await bot.handle_update({"update_type": "message_callback", "callback": {
         "callback_id": "cb-9", "payload": f"consent:{exc_id}:{info['child_student_id']}:APPROVED",
@@ -200,6 +201,7 @@ def test_FIN_12_demo_reset_recreates(client: TestClient) -> None:
 def test_FIN_13_change_answer_rules(client: TestClient) -> None:
     info = client.post("/api/v1/demo/start", params={"user_id": USER}).json()
     exc_id, sid = info["excursion_ids"][0], info["child_student_id"]
+    client.post("/api/v1/me/accept-terms", params={"user_id": USER})
     client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": USER},
                 json={"student_id": sid, "status": "APPROVED", "max_user_id": USER})
     # Другой человек чужой ответ сбросить не может
@@ -349,7 +351,11 @@ def test_FIN_20_consent_only_by_parent_or_teacher_paper(client: TestClient) -> N
     row = next(p for p in client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()["participants"]
                if p["student_id"] == other["student_id"])
     assert row["signed_source"] == "paper" and row["signed_by_max_user_id"] is None
-    # Родитель отвечает за своего ребёнка
+    # Родитель без принятого соглашения о ПЭП ответить не может, после принятия — может
+    r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": owner},
+                    json={"student_id": own_child, "status": "APPROVED", "source": "miniapp"})
+    assert r.status_code == 409
+    client.post("/api/v1/me/accept-terms", params={"user_id": owner})
     r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": owner},
                     json={"student_id": own_child, "status": "APPROVED", "source": "miniapp"})
     assert r.status_code == 200
@@ -375,3 +381,29 @@ def test_FIN_21_live_demo_link_stable_and_roomy(client: TestClient) -> None:
     ctx = client.get("/api/v1/parent/context", params={"max_user_id": owner + 115}).json()
     trip = next(t for t in ctx["children"][0]["excursions"] if t["excursion_id"] == exc_id)
     assert trip["consent_status"] == "PENDING"
+
+
+@pytest.mark.asyncio
+async def test_FIN_22_bot_asks_terms_before_first_answer(client: TestClient) -> None:
+    owner = 7_700_900
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    exc_id, sid = info["excursion_ids"][0], info["child_student_id"]
+    fake = FakeClient()
+    bot = BotService(client=fake)
+
+    def press(payload: str, cb: str) -> dict:
+        return {"update_type": "message_callback", "callback": {
+            "callback_id": cb, "payload": payload, "user": {"user_id": owner}},
+            "message": {"recipient": {"chat_id": 1}}}
+
+    def status() -> str:
+        with Session(engine) as s:
+            return next(p for p in s.get(Excursion, exc_id).participants if p.student_id == sid).consent_status.value
+
+    await bot.handle_update(press(f"consent:{exc_id}:{sid}:APPROVED", "a"))
+    assert "Шаг 1 из 2" in fake.answers[-1]["text"] and status() == "PENDING"
+    await bot.handle_update(press(f"terms:1:{exc_id}:{sid}:APPROVED", "b"))
+    assert "Шаг 2 из 2" in fake.answers[-1]["text"] and status() == "PENDING"
+    await bot.handle_update(press(f"terms:2:{exc_id}:{sid}:APPROVED", "c"))
+    assert status() == "APPROVED" and "идёт на выезд" in fake.answers[-1]["text"]
+    assert client.get("/api/v1/me", params={"user_id": owner}).json()["terms_accepted"] is True

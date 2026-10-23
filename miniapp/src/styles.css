@@ -852,6 +852,7 @@ body.cg-noscroll {
   left: 50%;
   bottom: calc(92px + env(safe-area-inset-bottom));
   z-index: 60;
+  pointer-events: none;
   display: flex;
   align-items: flex-start;
   gap: 8px;

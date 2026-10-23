@@ -361,6 +361,7 @@ async def test_BOTX_3_consent_notifies_other_parent(client: TestClient) -> None:
         s.commit()
         exc_id, student_id = exc.id, student.id
     fake = FakeClient()
+    BotService._accept_terms(777030)
     await BotService(client=fake).handle_update(
         _callback(f"consent:{exc_id}:{student_id}:APPROVED", user_id=777030)
     )
