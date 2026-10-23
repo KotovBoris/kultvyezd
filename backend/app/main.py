@@ -202,8 +202,8 @@ def _class_out(session: Session, k: SchoolClass, user_id: int | None = None) -> 
             connected += 1
     return ClassOut(
         id=k.id, title=k.title, school_id=k.school_id, school_number=k.school_number,
-        school_name=k.school_name, teacher_name=k.teacher_name, chat_id=k.chat_id,
-        owner_user_id=k.owner_user_id, can_edit=_can_edit_class(session, k, user_id),
+        school_name=k.school_name, teacher_name=k.teacher_name, teacher_phone=k.teacher_phone or "",
+        chat_id=k.chat_id, owner_user_id=k.owner_user_id, can_edit=_can_edit_class(session, k, user_id),
         is_demo=k.is_demo, invite_code=k.invite_code, parents_connected=connected,
         students=student_rows,
     )

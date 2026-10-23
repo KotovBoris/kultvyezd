@@ -45,6 +45,7 @@ export interface SchoolClass {
   school_number: string;
   school_name: string;
   teacher_name: string;
+  teacher_phone?: string;
   chat_id: number | null;
   owner_user_id: number | null;
   can_edit: boolean;

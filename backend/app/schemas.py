@@ -84,6 +84,7 @@ class ClassOut(BaseModel):
     school_number: str
     school_name: str
     teacher_name: str
+    teacher_phone: str = ""
     chat_id: int | None = None
     owner_user_id: int | None = None
     can_edit: bool = True

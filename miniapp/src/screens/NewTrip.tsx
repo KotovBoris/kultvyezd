@@ -395,9 +395,10 @@ export default function NewTrip({ classId }: { classId?: number }) {
           <Section title="Так увидят родители">
             <div className="cg-preview">
               <div className="cg-preview-bubble">
-                <b>Ученик {klass.title} — приглашение на выезд</b>
+                <b>ФИО ребёнка ({klass.title}) — приглашение на выезд</b>
                 <p>
-                  Здравствуйте! Классный руководитель {klass.teacher_name || "класса"} зовёт класс:
+                  Здравствуйте! Классный руководитель {klass.teacher_name || "класса"}
+                  {klass.school_name ? `, ${klass.school_name},` : ""} зовёт класс:
                   <br />
                   <br />
                   {quote(shown.title)}
@@ -409,7 +410,13 @@ export default function NewTrip({ classId }: { classId?: number }) {
                     ? `Билет: ${money(shown.price)} — покупаете сами на сайте или в кассе учреждения. Школа деньги не собирает.`
                     : "Вход бесплатный."}
                 </p>
-                <p className="cg-muted">Ответ кнопкой — ваша подпись под согласием на поход. Платить в чате ничего не нужно.</p>
+                <p className="cg-muted">
+                  {deadlineDate ? `Ответьте до ${dayLong(deadlineDate).split(", ")[1]}, ${deadlineTime}. ` : ""}Ответ кнопкой — ваша
+                  подпись под согласием на поход. Платить в чате ничего не нужно.
+                  <br />
+                  Вопросы — {klass.teacher_name || "классный руководитель"}
+                  {klass.teacher_phone ? `, ${klass.teacher_phone}` : ""}.
+                </p>
               </div>
               <div className="cg-preview-buttons">
                 <span>✅ Да, Имя пойдёт</span>
