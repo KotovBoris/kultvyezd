@@ -132,7 +132,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
 
   const shown = custom
     ? {
-        title: title.trim() || "Своё мероприятие",
+        title: title.trim() || "Свой выезд",
         venue: venue.trim(),
         price: Number(price.replace(",", ".")) || 0,
       }
@@ -173,7 +173,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
       haptic.ok();
       toast(
         klass.is_demo
-          ? "Приглашения отправлены. Виртуальные родители ответят в течение минуты."
+          ? "Приглашения отправлены. Демо-родители ответят за минуту."
           : `Приглашения отправлены ${connected} ${plural(connected, "родителю", "родителям", "родителям")} в MAX.`,
       );
       replace({ name: "trip", id: trip.id });
@@ -187,7 +187,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
   if (!classes || !events) {
     return (
       <Page>
-        {error ? <Notice tone="error" icon="info" title="Не удалось открыть каталог">{error}</Notice> : <Loader />}
+        {error ? <Notice tone="error" icon="info" title="Не удалось открыть афишу">{error}</Notice> : <Loader />}
       </Page>
     );
   }
@@ -243,13 +243,13 @@ export default function NewTrip({ classId }: { classId?: number }) {
           <Card className={`cg-event cg-custom ${custom ? "selected" : ""}`} onClick={pickCustom}>
             <div className="cg-event-head">
               <span className="cg-event-title">
-                <Icon name="plus" size={18} /> Своё мероприятие
+                <Icon name="plus" size={18} /> Свой вариант
               </span>
               <span className={`cg-radio ${custom ? "on" : ""}`} aria-hidden="true">
                 {custom && <Icon name="check" size={14} />}
               </span>
             </div>
-            <div className="cg-muted">Музей, театр, парк, предприятие — название и место укажете на следующем шаге.</div>
+            <div className="cg-muted">Музей, театр, парк, завод — название и место укажете дальше.</div>
           </Card>
           <Section title="Или из афиши Казани">
             <Input
@@ -268,7 +268,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
             </div>
           </Section>
           {visible.length === 0 && (
-            <Empty icon="calendar" title="Ничего не нашлось" text="Снимите фильтр, измените запрос или добавьте своё мероприятие." />
+            <Empty icon="calendar" title="Ничего не нашлось" text="Снимите фильтр, измените запрос или выберите «Свой вариант»." />
           )}
           <div className="cg-list">
             {visible.map((e) => {
@@ -295,8 +295,8 @@ export default function NewTrip({ classId }: { classId?: number }) {
             })}
           </div>
           <p className="cg-fineprint">
-            Афиша — демонстрационный снимок PRO.Культура.РФ по Казани. В рабочей версии события подтягиваются по
-            открытому API Минкультуры, а своё мероприятие можно добавить всегда.
+            Афиша — демо-данные PRO.Культура.РФ по Казани. В рабочей версии она обновляется из открытых данных
+            Минкультуры.
           </p>
         </>
       )}
@@ -304,7 +304,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
       {step === 2 && shown && (
         <>
           {custom ? (
-            <Section title="Мероприятие">
+            <Section title="Куда идём">
               <div className="cg-form">
                 <Field label="Название">
                   <input className="cg-input" value={title} placeholder="Экскурсия в музей…" onChange={(e) => setTitle(e.target.value)} />
@@ -361,12 +361,12 @@ export default function NewTrip({ classId }: { classId?: number }) {
                 )}
                 {transport === "bus" && (
                   <span className="cg-field-hint">
-                    Организованная перевозка детей: уведомить Госавтоинспекцию за 24 часа (ПП РФ № 680). Пункт появится в
-                    приказе, а в рабочий список добавится возраст детей.
+                    За 24 часа нужно уведомить Госавтоинспекцию (постановление Правительства РФ № 680). Это будет в
+                    приказе, а в список добавится возраст детей.
                   </span>
                 )}
               </div>
-              <Field label="Помощник руководителя группы" hint="ФИО и должность — попадёт в приказ. Минимум один взрослый.">
+              <Field label="Помощник руководителя группы" hint="Обязательно. ФИО и должность — попадёт в приказ.">
                 <input className="cg-input" value={escorts} placeholder="Петрова О. И., педагог-организатор" onChange={(e) => setEscorts(e.target.value)} />
               </Field>
               <div className="cg-form-row">
@@ -385,7 +385,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
             </div>
           </Section>
           <Notice tone="info" icon="bell">
-            Тем, кто не ответит, ClassGo сам напомнит перед сроком — не чаще раза в сутки и не ночью.
+            Кто не ответит, тому ClassGo сам напомнит — до трёх раз перед сроком. Ночью не пишем.
           </Notice>
         </>
       )}
@@ -407,12 +407,12 @@ export default function NewTrip({ classId }: { classId?: number }) {
                   Когда: {dayLong(date)}, сбор в {gathering} {meeting}, вернёмся к {returning}
                   <br />
                   {shown.price > 0
-                    ? `Билет: ${money(shown.price)} — покупаете сами на сайте или в кассе учреждения. Школа деньги не собирает.`
+                    ? `Билет: ${money(shown.price)} — покупаете сами, на сайте или в кассе. Школа деньги не собирает.`
                     : "Вход бесплатный."}
                 </p>
                 <p className="cg-muted">
                   {deadlineDate ? `Ответьте до ${dayLong(deadlineDate).split(", ")[1]}, ${deadlineTime}. ` : ""}Ответ кнопкой — ваша
-                  подпись под согласием на поход. Платить в чате ничего не нужно.
+                  подпись под согласием. Платить в чате ничего не нужно.
                   <br />
                   Вопросы — {klass.teacher_name || "классный руководитель"}
                   {klass.teacher_phone ? `, ${klass.teacher_phone}` : ""}.
@@ -436,19 +436,19 @@ export default function NewTrip({ classId }: { classId?: number }) {
               <div className="cg-fact">
                 <Icon name="share" size={18} />
                 <span>
-                  {total - connected} {plural(total - connected, "семья ещё не подключена", "семьи ещё не подключены", "семей ещё не подключены")} —
-                  поделитесь ссылкой в чате класса или раздайте бумажные бланки из пакета документов.
+                  {total - connected} {plural(total - connected, "семья ещё не подключена", "семьи ещё не подключены", "семей ещё не подключены")}.
+                  Отправьте ссылку в чат класса или раздайте бумажные бланки.
                 </span>
               </div>
             )}
             <div className="cg-fact">
               <Icon name="users" size={18} />
-              <span>Руководитель: {klass.teacher_name || "—"}, помощник: {escorts || "—"}. Передвижение: {transportText}.</span>
+              <span>Руководитель: {klass.teacher_name || "—"}, помощник: {escorts || "—"}. Добираемся: {transportText}.</span>
             </div>
             {klass.is_demo && (
               <div className="cg-fact">
                 <Icon name="spark" size={18} />
-                <span>Демо: виртуальные родители ответят сами, а вам придёт приглашение как родителю Тимура.</span>
+                <span>Демо: остальные родители ответят сами, а вам придёт приглашение как родителю Тимура.</span>
               </div>
             )}
           </Card>

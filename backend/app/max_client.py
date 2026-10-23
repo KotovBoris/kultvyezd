@@ -160,11 +160,11 @@ class MaxClient:
 
 
 BOT_COMMANDS: list[dict[str, str]] = [
-    {"name": "start", "description": "Начать работу с ботом «ClassGo»"},
-    {"name": "trips", "description": "Мои выезды и статусы по ребёнку"},
-    {"name": "mute", "description": "Не беспокоить по всем мероприятиям"},
-    {"name": "unmute", "description": "Снова получать напоминания"},
-    {"name": "help", "description": "Как открыть мини-приложение"},
+    {"name": "start", "description": "Начать работу с ClassGo"},
+    {"name": "trips", "description": "Выезды моего ребёнка"},
+    {"name": "mute", "description": "Выключить напоминания"},
+    {"name": "unmute", "description": "Включить напоминания"},
+    {"name": "help", "description": "Как это работает"},
 ]
 
 

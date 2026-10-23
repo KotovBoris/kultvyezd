@@ -58,12 +58,11 @@ export default function PairScreen({ code }: { code: string }) {
       <Card className="cg-join">
         <span className="cg-join-icon"><Icon name="users" size={26} /></span>
         <p>
-          {info.invited_by ? <b>{info.invited_by}</b> : "Родитель"} приглашает вас тоже получать приглашения на
-          выезды класса и отвечать на них.
+          {info.invited_by ? <b>{info.invited_by}</b> : "Родитель"} зовёт вас тоже получать приглашения на выезды
+          и отвечать на них.
         </p>
         <p className="cg-muted">
-          Достаточно ответа одного из родителей. Если вы ответите по-разному, учитель увидит последний ответ и
-          позвонит, чтобы уточнить.
+          Достаточно ответа одного из родителей. Второму придёт сообщение, кто и как ответил.
         </p>
       </Card>
     </Page>

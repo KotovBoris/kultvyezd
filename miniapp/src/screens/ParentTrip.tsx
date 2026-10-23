@@ -12,7 +12,7 @@ const REASONS = ["Личные причины", "Семейные обстоят
 
 function pushkinNote(trip: Trip): string {
   if (!trip.is_pushkin_card) return "";
-  if (trip.pushkin_ok === true) return " Можно оплатить «Пушкинской картой» ребёнка.";
+  if (trip.pushkin_ok === true) return " Можно «Пушкинской картой» ребёнка.";
   if (trip.pushkin_ok === null) return " Если ребёнку уже 14, можно «Пушкинской картой».";
   return "";
 }
@@ -93,7 +93,7 @@ export function ParentTripView({
           <span>
             {trip.ticket_price > 0 ? (
               <>
-                Билет <b>{money(trip.ticket_price)}</b> — семья покупает сама на сайте или в кассе.
+                Билет <b>{money(trip.ticket_price)}</b> — покупаете сами, на сайте или в кассе.
                 {pushkinNote(trip)} Школа деньги не собирает.
               </>
             ) : (
@@ -115,7 +115,7 @@ export function ParentTripView({
 
       {trip.cancelled && (
         <Notice tone="warn" icon="info" title="Выезд отменён">
-          {name} остаётся на уроках по расписанию. Если вы уже купили билет — уточните у классного руководителя про
+          {name} остаётся на уроках по расписанию. Если вы купили билет — спросите классного руководителя про
           возврат.
         </Notice>
       )}
@@ -127,7 +127,7 @@ export function ParentTripView({
             {trip.deadline && (
               <span className={late ? "cg-late" : "cg-muted"}>
                 {late
-                  ? "Срок ответа прошёл, но ответить ещё можно — учитель увидит."
+                  ? "Срок прошёл, но ответить ещё можно."
                   : `Ответьте до ${deadlineText(trip.deadline)}.`}
               </span>
             )}
@@ -142,15 +142,15 @@ export function ParentTripView({
             </Button>
           </div>
           <p className="cg-note">
-            Ответ кнопкой — ваша подпись под согласием на поход. Платить здесь ничего не нужно. Удобнее на бумаге —
-            бланк у классного руководителя.
+            Ответ кнопкой — ваша подпись под согласием. Платить здесь ничего не нужно. Удобнее на бумаге? Бланк —
+            у классного руководителя.
           </p>
         </>
       )}
 
       {pending && trip.started && !trip.cancelled && (
         <Notice tone="warn" icon="clock" title="Выезд уже начался">
-          Ответить уже нельзя. Если {name} всё-таки едет — позвоните классному руководителю.
+          Ответить уже нельзя. Если {name} всё же едет — позвоните классному руководителю.
         </Notice>
       )}
 
@@ -179,13 +179,10 @@ export function ParentTripView({
       {trip.consent_status === "APPROVED" && trip.ticket_price > 0 && trip.ticket_sale_url && !trip.started && !trip.cancelled && (
         <div className="cg-ticketstep">
           <div className="cg-actions-title">Билет</div>
-          <p className="cg-muted">
-            Если ещё не купили — купите сами на сайте учреждения.{pushkinNote(trip)} Трудности с оплатой — скажите
-            классному руководителю.
-          </p>
+          <p className="cg-muted">Если трудно оплатить — скажите классному руководителю.</p>
           <Button size="medium" variant="secondary" onClick={() => openLink(trip.ticket_sale_url)}
             iconBefore={<Icon name="ticket" size={18} />}>
-            Открыть сайт учреждения
+            Сайт с билетами
           </Button>
         </div>
       )}
@@ -194,7 +191,7 @@ export function ParentTripView({
         <div className="cg-ptrip-links">
           {!pending && trip.can_change && (
             <button type="button" className="cg-link" disabled={busy} onClick={() => void change()}>
-              Изменить ответ (можно до начала выезда)
+              Изменить ответ
             </button>
           )}
           {tel && (
@@ -206,7 +203,7 @@ export function ParentTripView({
       )}
 
       <Sheet open={askReason} title={`Почему ${name} не пойдёт?`} onClose={() => setAskReason(false)}>
-        <p className="cg-muted">Учитель увидит только этот вариант. Подробности объяснять не нужно.</p>
+        <p className="cg-muted">Учитель увидит только выбранный вариант. Подробности не нужны.</p>
         <div className="cg-stack">
           {REASONS.map((r) => (
             <Button key={r} size="large" stretched variant="secondary" disabled={busy} onClick={() => void answer("REJECTED", r)}>
@@ -230,7 +227,7 @@ export default function ParentTrip({ excursionId, studentId }: { excursionId: nu
       const ctx = await api.parentContext(me.user_id);
       const c = ctx.children.find((x) => x.student_id === studentId) ?? null;
       setChild(c);
-      setError(c ? null : "Этот выезд не найден среди выездов ваших детей.");
+      setError(c ? null : "Этого выезда нет среди выездов ваших детей.");
     } catch (e) {
       setError(errorText(e));
     }

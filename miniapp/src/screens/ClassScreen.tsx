@@ -43,8 +43,8 @@ export default function ClassScreen({ id }: { id: number }) {
   }
 
   const shareText =
-    `Родители ${klass.title}! Классный руководитель приглашает в ClassGo: здесь приходят приглашения на ` +
-    `экскурсии и выезды, а ответить можно одной кнопкой. Откройте ссылку и подтвердите номер телефона.`;
+    `Родители ${klass.title}! Подключитесь к ClassGo: сюда будут приходить приглашения на выезды, ` +
+    `ответ — одной кнопкой. Откройте ссылку и подтвердите номер телефона.`;
   const notConnected = klass.students.filter((s) => !connected(s)).length;
 
   async function share() {
@@ -80,8 +80,8 @@ export default function ClassScreen({ id }: { id: number }) {
           <div>
             <div className="cg-actions-title">Подключите родителей</div>
             <p className="cg-muted">
-              Одна ссылка на весь класс. Родитель откроет её в MAX, подтвердит номер — и ClassGo сам найдёт его
-              ребёнка в списке. Никаких регистраций и паролей.
+              Одна ссылка на весь класс. Родитель откроет её в MAX и подтвердит номер — ClassGo сам найдёт ребёнка.
+              Без регистрации и паролей.
             </p>
           </div>
         </div>
@@ -106,7 +106,7 @@ export default function ClassScreen({ id }: { id: number }) {
       {notConnected > 0 && notConnected < klass.students.length && !klass.is_demo && (
         <Notice tone="warn" icon="info">
           {notConnected} {plural(notConnected, "семья ещё не подключена", "семьи ещё не подключены", "семей ещё не подключены")}.
-          Напомните им о ссылке в чате класса. Кто не пользуется MAX, отвечает на бумажном бланке — он есть в пакете документов выезда.
+          Напомните о ссылке в чате класса. Кто без MAX, отвечает на бумажном бланке — он есть в документах выезда.
         </Notice>
       )}
 
@@ -144,8 +144,7 @@ export default function ClassScreen({ id }: { id: number }) {
           <div className="cg-qr-wrap">
             <QrCode value={invite.app_link} size={240} />
             <p className="cg-muted">
-              Покажите на родительском собрании: родители наводят камеру телефона, открывают ClassGo в MAX и
-              подтверждают номер.
+              Покажите на родительском собрании. Родители наведут камеру телефона и подтвердят номер в MAX.
             </p>
             <code className="cg-code">{invite.app_link}</code>
           </div>
@@ -179,7 +178,7 @@ function AddStudent({ classId, onDone }: { classId: number; onDone: () => void }
         parent_role: "Родитель",
       });
       haptic.ok();
-      toast("Ученик добавлен — он сразу появился во всех выездах класса.");
+      toast("Ученик добавлен. Он уже есть во всех выездах класса.");
       onDone();
     } catch (e) {
       toast(errorText(e), "error");

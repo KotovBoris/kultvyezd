@@ -37,7 +37,7 @@ export default function TeacherHome() {
       await api.demoReset();
       await refreshMe("teacher");
       await load();
-      toast("Демо начато заново: свежий класс и пример выезда.");
+      toast("Демо начато заново: новый класс и пример выезда.");
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -78,7 +78,7 @@ export default function TeacherHome() {
             ? `${classes.map((c) => c.title).join(", ")} · ` +
               (upcoming.length
                 ? `${upcoming.length} ${plural(upcoming.length, "выезд", "выезда", "выездов")} впереди`
-                : "запланированных выездов нет")
+                : "выездов пока нет")
             : undefined
         }
       />
@@ -102,8 +102,8 @@ export default function TeacherHome() {
             </button>
           }
         >
-          7Б — ваш демо-класс: остальные родители виртуальные и отвечают сами в течение минуты. Вы ещё и
-          родитель Тимура — переключитесь на «Я родитель» сверху или ответьте в чате с ботом.
+          7Б — ваш демо-класс. Остальные родители в нём ненастоящие и отвечают сами за минуту. Вы ещё и родитель
+          Тимура: переключитесь на «Я родитель» вверху или ответьте в чате с ботом.
         </Notice>
       )}
 
@@ -113,7 +113,7 @@ export default function TeacherHome() {
         <Empty
           icon="users"
           title="Добавьте свой класс"
-          text="Загрузите список из Excel или введите вручную: ФИО ученика и телефон родителя. Можно сначала попробовать на демо-классе."
+          text="Загрузите список из Excel или введите вручную: ФИО ученика и телефон родителя."
           action={
             <div className="cg-stack">
               <Button size="large" stretched onClick={() => push({ name: "new-class" })}>
@@ -137,7 +137,7 @@ export default function TeacherHome() {
           {upcoming.length === 0 && (
             <Empty
               icon="calendar"
-              title="Пока нет запланированных выездов"
+              title="Выездов пока нет"
               text="Выберите спектакль, музей или выставку — приглашение уйдёт родителям в MAX."
             />
           )}
@@ -215,7 +215,7 @@ function TripCard({ trip }: { trip: Excursion }) {
             {s && !trip.cancelled && !done && <Status tone="waiting">Ждём ответа: {s.waiting} из {s.total}</Status>}
             {s && !trip.cancelled && !done && trip.deadline && (
               <span className="cg-muted cg-small cg-deadline">
-                {closed ? "Сбор ответов закрыт" : `Ответить до ${deadlineText(trip.deadline)}`}
+                {closed ? "Срок ответа прошёл" : `Ответить до ${deadlineText(trip.deadline)}`}
               </span>
             )}
           </div>

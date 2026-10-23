@@ -75,7 +75,7 @@ export default function ParentHome() {
         subtitle={
           pendingCount
             ? `Ждут вашего ответа: ${pendingCount} ${plural(pendingCount, "приглашение", "приглашения", "приглашений")}`
-            : "Новых приглашений нет — мы пришлём сообщение в MAX."
+            : "Новых приглашений нет. О новых напишем в MAX."
         }
       />
 
@@ -101,7 +101,7 @@ export default function ParentHome() {
             </div>
 
             {child.excursions.length === 0 && (
-              <Empty icon="calendar" title="Пока нет выездов" text="Когда учитель позовёт класс в музей или театр, приглашение придёт сюда и в чат MAX." />
+              <Empty icon="calendar" title="Пока нет выездов" text="Приглашение придёт сюда и в чат MAX." />
             )}
 
             <div className="cg-list">
@@ -167,13 +167,13 @@ function SecondParentSheet({ child, onClose }: { child: ParentChild | null; onCl
 
   if (!child) return null;
   const name = firstName(child.student_name);
-  const text = `Подключись к ClassGo, чтобы тоже получать приглашения на выезды класса ${child.class_title} (${name}) и отвечать на них.`;
+  const text = `Подключись к ClassGo, чтобы тоже получать приглашения на выезды класса ${child.class_title} (${name}).`;
 
   return (
     <Sheet open title="Позвать второго родителя" onClose={onClose}>
       <p className="cg-muted">
-        Отправьте ссылку маме, папе или опекуну. Пересылать сообщения бота не нужно — кнопки при пересылке
-        пропадают. Ссылка одноразовая.
+        Отправьте ссылку маме, папе или опекуну. Ссылка одноразовая. Не пересылайте сообщения бота — кнопки в них
+        не работают.
       </p>
       {error && <Notice tone="error" icon="info">{error}</Notice>}
       {!link && !error && <p className="cg-muted">Готовим ссылку…</p>}
@@ -210,7 +210,7 @@ function RevokeLink() {
     try {
       await api.revoke();
       await refreshMe("parent");
-      toast("Согласие отозвано. Отвечать можно на бумаге через классного руководителя.", "info");
+      toast("Согласие отозвано. Бумажный бланк — у классного руководителя.", "info");
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -220,7 +220,7 @@ function RevokeLink() {
 
   return (
     <button type="button" className="cg-link cg-danger cg-center-link" disabled={busy} onClick={() => void revoke()}>
-      {confirming ? "Нажмите ещё раз: отключиться и отвечать на бумаге" : "Отозвать согласие и отвечать на бумаге"}
+      {confirming ? "Нажмите ещё раз, чтобы отозвать" : "Отозвать согласие"}
     </button>
   );
 }
@@ -242,7 +242,7 @@ function JoinByPhone({ onLinked }: { onLinked: () => Promise<void> | void }) {
       }
       const r = await api.join({ phone: contact.phone, auth_date: contact.authDate, hash: contact.hash });
       if (r.status === "linked") {
-        toast(`Готово: ${r.children.map(firstName).join(", ")} — ваш ребёнок в ClassGo.`);
+        toast(`Готово! Подключили: ${r.children.map(firstName).join(", ")}.`);
         await refreshMe("parent");
         await onLinked();
       } else {
@@ -272,8 +272,8 @@ function JoinByPhone({ onLinked }: { onLinked: () => Promise<void> | void }) {
         <span className="cg-join-icon"><Icon name="phone" size={26} /></span>
         <div className="cg-actions-title">Найдём вашего ребёнка по номеру телефона</div>
         <p className="cg-muted">
-          Классный руководитель внёс ваш номер в список класса. MAX передаст его ClassGo с подписью платформы — и
-          приглашения на выезды будут приходить вам в чат.
+          Классный руководитель внёс ваш номер в список класса. Подтвердите его — и приглашения на выезды будут
+          приходить вам в MAX.
         </p>
         {inside ? (
           <Button size="large" stretched loading={busy} onClick={() => void confirmPhone()}
@@ -282,19 +282,19 @@ function JoinByPhone({ onLinked }: { onLinked: () => Promise<void> | void }) {
           </Button>
         ) : (
           <Notice tone="info" icon="info">
-            Подключение по номеру работает внутри MAX: откройте бота @t158_hakaton_max_bot и нажмите «Открыть ClassGo».
+            Откройте бота @t158_hakaton_max_bot в MAX и нажмите «Открыть ClassGo».
           </Notice>
         )}
         {result && <Notice tone={result.tone} icon="info">{result.text}</Notice>}
       </Card>
       <p className="cg-muted cg-small cg-center">
-        Пришла ссылка-приглашение от учителя? Просто откройте её — подключение произойдёт так же.
+        Есть ссылка от учителя? Просто откройте её.
       </p>
       <button type="button" className="cg-demo-card" disabled={busy} onClick={() => void demo()}>
         <span className="cg-demo-icon"><Icon name="spark" size={22} /></span>
         <span className="cg-demo-text">
           <b>Посмотреть демо</b>
-          <span>Демо-класс, где вы и учитель, и родитель — без настоящих детей и телефонов.</span>
+          <span>Демо-класс без настоящих детей: вы в нём и учитель, и родитель.</span>
         </span>
         <Icon name="chevron" size={20} />
       </button>
@@ -312,7 +312,7 @@ function NotificationsToggle({ children, onChanged }: { children: ParentChild[];
     setBusy(true);
     try {
       await api.setNotifications(me.user_id, next);
-      toast(next ? "Напоминания включены." : "Напоминания выключены. Приглашения всё равно будут видны здесь.");
+      toast(next ? "Напоминания включены." : "Напоминания выключены. Приглашения останутся здесь.");
       onChanged();
     } catch (e) {
       toast(errorText(e), "error");
@@ -325,7 +325,7 @@ function NotificationsToggle({ children, onChanged }: { children: ParentChild[];
     <Card className="cg-setting">
       <div>
         <b>Напоминания в чате MAX</b>
-        <span className="cg-muted">Только если вы ещё не ответили, и не с 21:00 до 08:00.</span>
+        <span className="cg-muted">Только если вы не ответили. С 21:00 до 08:00 не пишем.</span>
       </div>
       <Switch checked={on} disabled={busy} onChange={(e) => void toggle(e.target.checked)} aria-label="Напоминания" />
     </Card>

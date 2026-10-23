@@ -127,7 +127,7 @@ def apply_consent(
 ) -> tuple[ExcursionParticipant, bool, str]:
     participant = get_participant(session, excursion.id, student_id)
     if participant is None:
-        raise ValueError("Участник не найден в этом выезде")
+        raise ValueError("Ученик не найден в этом выезде")
 
     if excursion.cancelled:
         return participant, False, "Выезд отменён — отвечать не нужно."
@@ -136,19 +136,19 @@ def apply_consent(
         existing_by = participant.signed_by_name or "законный представитель"
         when = msk_stamp(participant.signed_at) or "ранее"
         if participant.consent_status == ConsentStatus.APPROVED:
-            msg = f"Согласие уже подписано ({existing_by}, {when}). Статус: Едет."
+            msg = f"Согласие уже подписано ({existing_by}, {when})."
         else:
-            msg = f"Уже зафиксирован отказ ({existing_by}, {when})."
+            msg = f"Отказ уже записан ({existing_by}, {when})."
         return participant, False, msg
 
     if status == "APPROVED":
         participant.consent_status = ConsentStatus.APPROVED
         participant.ticket_status = _ticket_status_for_approve(excursion, participant.ticket_status)
-        msg = "Согласие подписано. Билет можно оплатить напрямую в кассе."
+        msg = "Согласие подписано."
     else:
         participant.consent_status = ConsentStatus.REJECTED
         participant.rejection_reason = reason or "Без указания причины"
-        msg = "Отказ зафиксирован."
+        msg = "Отказ записан."
 
     participant.signed_by_phone = parent_phone or None
     participant.signed_by_name = parent_name or None
@@ -219,7 +219,7 @@ def reset_consent(
 ) -> tuple[ExcursionParticipant, bool, str]:
     participant = get_participant(session, excursion.id, student_id)
     if participant is None:
-        raise ValueError("Участник не найден в этом выезде")
+        raise ValueError("Ученик не найден в этом выезде")
     if not can_change_answer(session, participant, excursion, user_id, as_teacher=as_teacher):
         return participant, False, "Ответ уже нельзя изменить — позвоните классному руководителю."
     participant.consent_status = ConsentStatus.PENDING
@@ -239,7 +239,7 @@ def reset_consent(
     session.add(excursion)
     session.commit()
     session.refresh(participant)
-    return participant, True, "Ответ сброшен — выберите заново."
+    return participant, True, "Выберите ответ заново."
 
 
 def confirm_ticket(
@@ -247,7 +247,7 @@ def confirm_ticket(
 ) -> tuple[ExcursionParticipant, bool, str]:
     participant = get_participant(session, excursion.id, student_id)
     if participant is None:
-        raise ValueError("Участник не найден в этом выезде")
+        raise ValueError("Ученик не найден в этом выезде")
     if participant.consent_status != ConsentStatus.APPROVED:
         return participant, False, "Сначала нужно подписать согласие."
     if participant.ticket_status == TicketStatus.PAID:

@@ -115,7 +115,7 @@ export default function NewClass() {
           <Field label="Классный руководитель" hint="Попадёт в приказ как ответственный за группу.">
             <input className="cg-input" value={teacher} placeholder="Фамилия Имя Отчество" onChange={(e) => setTeacher(e.target.value)} />
           </Field>
-          <Field label="Ваш телефон для родителей" hint="Необязательно. Покажем в приглашении, чтобы родитель мог позвонить с вопросом.">
+          <Field label="Ваш телефон для родителей" hint="Необязательно. Покажем в приглашении — для вопросов родителей.">
             <input className="cg-input" type="tel" inputMode="tel" autoComplete="tel" value={phone} placeholder="+7 900 000-00-00"
               onChange={(e) => setPhone(e.target.value)} />
           </Field>
@@ -150,7 +150,7 @@ export default function NewClass() {
         ) : (
           <Card className="cg-form-card">
             <p className="cg-muted cg-small">
-              Файл .xlsx или .csv с колонками «ФИО», «Телефон родителя», «ФИО родителя», при желании «Дата рождения».
+              Файл .xlsx или .csv с колонками «ФИО», «Телефон родителя», «ФИО родителя». «Дата рождения» — по желанию.
               Первая строка — заголовки.
             </p>
             <label className="cg-file">
@@ -163,8 +163,8 @@ export default function NewClass() {
       </Section>
 
       <Notice tone="info" icon="shield">
-        Телефон родителя нужен, чтобы он подключился сам: MAX подтвердит номер, и ClassGo найдёт ребёнка в списке.
-        Данные хранятся на сервере в России и используются только для выездов класса.
+        По телефону родитель подключится сам: MAX подтвердит номер, ClassGo найдёт ребёнка. Данные хранятся в
+        России и нужны только для выездов класса.
       </Notice>
     </Page>
   );

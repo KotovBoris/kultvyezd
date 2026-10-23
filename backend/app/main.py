@@ -99,7 +99,7 @@ def _require_valid_parent(init_data: str | None) -> None:
         return
     valid, _ = validate_webapp_data(init_data or "", settings.MAX_BOT_TOKEN)
     if not valid:
-        raise HTTPException(status_code=401, detail="Недействительные данные мини-приложения (initData)")
+        raise HTTPException(status_code=401, detail="Не удалось проверить вход. Закройте и снова откройте ClassGo в MAX.")
 
 
 def _naive_utc(value: datetime | None) -> datetime | None:
@@ -368,7 +368,7 @@ def list_schools(query: str | None = Query(default=None), session: Session = Dep
 def create_school(payload: SchoolCreate, session: Session = Depends(get_session)) -> SchoolOut:
     name = payload.name.strip()
     if not name:
-        raise HTTPException(status_code=422, detail="Название школы обязательно")
+        raise HTTPException(status_code=422, detail="Укажите название школы")
     existing = session.exec(select(School).where(School.name == name, School.city == payload.city)).first()
     if existing:
         return SchoolOut(id=existing.id, name=existing.name, city=existing.city, number=existing.number,
@@ -392,7 +392,7 @@ def share_school(school_id: int, payload: ShareRequest,
     if not school:
         raise HTTPException(status_code=404, detail="Школа не найдена")
     if not _can_edit_school(session, school, caller.user_id):
-        raise HTTPException(status_code=403, detail="Нет прав на управление школой")
+        raise HTTPException(status_code=403, detail="Нет доступа к этой школе")
     existing = session.exec(
         select(SchoolAccess).where(SchoolAccess.school_id == school_id, SchoolAccess.user_id == payload.user_id)
     ).first()
@@ -461,13 +461,13 @@ async def import_class(
 ) -> ImportResult:
     content = await file.read()
     if not content:
-        raise HTTPException(status_code=400, detail="Пустой файл")
+        raise HTTPException(status_code=400, detail="Файл пустой")
     try:
         rows = _parse_rows(content, file.filename or "upload.csv")
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"Не удалось разобрать файл: {exc}") from exc
     if not rows:
-        raise HTTPException(status_code=400, detail="В файле не найдено строк данных")
+        raise HTTPException(status_code=400, detail="В файле нет строк с учениками")
 
     klass = SchoolClass(grade=grade, letter=letter, school_number=school_number,
                         school_name=school_name, teacher_name=teacher_name, teacher_phone=teacher_phone.strip(),
@@ -518,7 +518,7 @@ def create_class(payload: ClassCreate, caller: Caller = Depends(get_caller),
     if caller.verified or not payload.user_id:
         payload.user_id = caller.user_id
     if not payload.grade.strip():
-        raise HTTPException(status_code=422, detail="Параллель (grade) обязательна")
+        raise HTTPException(status_code=422, detail="Укажите номер класса")
     klass = SchoolClass(
         grade=payload.grade.strip(), letter=payload.letter.strip(),
         school_number=payload.school_number, school_name=payload.school_name,
@@ -577,7 +577,7 @@ def update_class(class_id: int, payload: ClassUpdate, caller: Caller = Depends(g
     if not k:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if not _can_edit_class(session, k, payload.user_id):
-        raise HTTPException(status_code=403, detail="Нет прав на редактирование класса")
+        raise HTTPException(status_code=403, detail="Нет доступа к этому классу")
     if payload.grade is not None:
         k.grade = payload.grade.strip()
     if payload.letter is not None:
@@ -601,9 +601,9 @@ def add_student(class_id: int, payload: StudentCreate,
     if not k:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if not _can_edit_class(session, k, caller.user_id):
-        raise HTTPException(status_code=403, detail="Нет прав на редактирование класса")
+        raise HTTPException(status_code=403, detail="Нет доступа к этому классу")
     if not payload.full_name.strip():
-        raise HTTPException(status_code=422, detail="ФИО обязательно")
+        raise HTTPException(status_code=422, detail="Укажите ФИО ученика")
     student = Student(class_id=class_id, full_name=payload.full_name.strip(), birth_date=payload.birth_date)
     session.add(student)
     session.commit()
@@ -634,7 +634,7 @@ def remove_student(class_id: int, student_id: int,
     if not k:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if not _can_edit_class(session, k, caller.user_id):
-        raise HTTPException(status_code=403, detail="Нет прав на редактирование класса")
+        raise HTTPException(status_code=403, detail="Нет доступа к этому классу")
     student = session.get(Student, student_id)
     if not student or student.class_id != class_id:
         raise HTTPException(status_code=404, detail="Ученик не найден в этом классе")
@@ -655,7 +655,7 @@ def share_class(class_id: int, payload: ShareRequest,
     if not k:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if not _can_edit_class(session, k, caller.user_id):
-        raise HTTPException(status_code=403, detail="Нет прав на управление классом")
+        raise HTTPException(status_code=403, detail="Нет доступа к этому классу")
     existing = session.exec(
         select(ClassAccess).where(ClassAccess.class_id == class_id, ClassAccess.user_id == payload.user_id)
     ).first()
@@ -780,14 +780,14 @@ async def post_consent(excursion_id: int, payload: ConsentRequest, request: Requ
         if paper:
             klass = session.get(SchoolClass, exc.class_id)
             if not (klass and _can_edit_class(session, klass, caller.user_id)):
-                raise HTTPException(status_code=403, detail="Бумажный бланк отмечает классный руководитель")
+                raise HTTPException(status_code=403, detail="Бумажные бланки отмечает только классный руководитель")
         elif not any(p.max_user_id == caller.user_id for p in services.student_parents(session, payload.student_id)):
             raise HTTPException(status_code=403, detail="Ответить может только родитель этого ученика")
         else:
             profile = session.exec(select(UserProfile).where(UserProfile.max_user_id == caller.user_id)).first()
             if not (profile and profile.terms_accepted_at):
-                raise HTTPException(status_code=409, detail="Сначала примите соглашение об электронной подписи "
-                                                            "и согласие на обработку данных")
+                raise HTTPException(status_code=409, detail="Сначала примите соглашение о подписи "
+                                                            "и дайте согласие на обработку данных")
     elif settings.MAX_VALIDATE_INIT_DATA or settings.bot_enabled:
         raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX, чтобы ответить")
     try:
@@ -824,7 +824,7 @@ def reset_consent(excursion_id: int, payload: ConsentResetRequest, caller: Calle
     if payload.as_teacher:
         klass = session.get(SchoolClass, exc.class_id)
         if not (klass and caller.user_id and _can_edit_class(session, klass, caller.user_id)):
-            raise HTTPException(status_code=403, detail="Сбросить отметку может только учитель класса")
+            raise HTTPException(status_code=403, detail="Снять отметку может только классный руководитель")
         as_teacher = True
     try:
         p, changed, message = services.reset_consent(
@@ -845,7 +845,7 @@ def _teacher_excursion(session: Session, excursion_id: int, caller: Caller) -> E
         raise HTTPException(status_code=404, detail="Выезд не найден")
     klass = session.get(SchoolClass, exc.class_id)
     if not klass or not _can_edit_class(session, klass, caller.user_id):
-        raise HTTPException(status_code=403, detail="Это может сделать только учитель класса")
+        raise HTTPException(status_code=403, detail="Это может сделать только классный руководитель")
     return exc
 
 
@@ -946,7 +946,7 @@ async def publish_excursion(excursion_id: int, chat_id: int | None = Query(defau
         raise HTTPException(status_code=404, detail="Выезд не найден")
     target_chat = chat_id if chat_id is not None else class_chat_id(session, exc)
     if target_chat is None:
-        raise HTTPException(status_code=400, detail="У класса не указан чат. Задайте chat_id в разделе «Классы».")
+        raise HTTPException(status_code=400, detail="Чат класса не указан.")
     bot = BotService()
     result = await bot.publish_to_chat(exc, target_chat)
     return {"ok": bool(result) or not settings.bot_enabled, "chat_id": target_chat,
@@ -964,7 +964,7 @@ async def tag_unactivated(excursion_id: int, chat_id: int | None = Query(default
         return {"ok": True, "tagged": 0, "names": [], "delivered": False}
     target_chat = chat_id if chat_id is not None else class_chat_id(session, exc)
     if target_chat is None:
-        raise HTTPException(status_code=400, detail="У класса не указан чат. Задайте chat_id в разделе «Классы».")
+        raise HTTPException(status_code=400, detail="Чат класса не указан.")
     bot = BotService()
     result = await bot.tag_unactivated(exc, target_chat, names)
     return {"ok": bool(result) or not settings.bot_enabled, "tagged": len(names),
@@ -1078,7 +1078,7 @@ def parent_claim(payload: ParentClaimRequest, session: Session = Depends(get_ses
 def parent_confirm_link(payload: ParentLinkAction, session: Session = Depends(get_session)) -> dict:
     parent = services.confirm_parent_link(session, payload.student_id, payload.max_user_id, payload.accept)
     if not parent:
-        raise HTTPException(status_code=404, detail="Привязка не найдена")
+        raise HTTPException(status_code=404, detail="Запись не найдена")
     return {"ok": True, "confirmed": parent.confirmed,
             "linked": parent.max_user_id is not None}
 
@@ -1087,7 +1087,7 @@ def parent_confirm_link(payload: ParentLinkAction, session: Session = Depends(ge
 def parent_revoke(caller: Caller = Depends(get_caller), session: Session = Depends(get_session)) -> dict:
     """Отозвать согласие на обработку данных и отвечать на бумаге: отвязываем аккаунт MAX от детей."""
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     contacts = session.exec(select(ParentContact).where(ParentContact.max_user_id == caller.user_id)).all()
     for contact in contacts:
         contact.max_user_id = None
@@ -1139,7 +1139,7 @@ def me(caller: Caller = Depends(get_caller), session: Session = Depends(get_sess
 def accept_terms(caller: Caller = Depends(get_caller), session: Session = Depends(get_session)) -> MeOut:
     """Родитель один раз принимает соглашение о ПЭП и даёт отдельное согласие на обработку ПДн."""
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     profile = remember_profile(session, caller)
     if not profile.terms_accepted_at:
         profile.terms_accepted_at = datetime.utcnow()
@@ -1152,7 +1152,7 @@ def accept_terms(caller: Caller = Depends(get_caller), session: Session = Depend
 def set_role(payload: RoleRequest, caller: Caller = Depends(get_caller),
              session: Session = Depends(get_session)) -> MeOut:
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     profile = remember_profile(session, caller)
     profile.role = payload.role
     session.add(profile)
@@ -1164,7 +1164,7 @@ def set_role(payload: RoleRequest, caller: Caller = Depends(get_caller),
 async def demo_start(caller: Caller = Depends(get_caller), session: Session = Depends(get_session)) -> DemoOut:
     """Личный демо-класс: пользователь — учитель 7Б и родитель одного ученика."""
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     profile = remember_profile(session, caller)
     info = demo.create_sandbox(session, caller.user_id, profile.display_name if profile else "")
     invited = 0
@@ -1180,7 +1180,7 @@ async def demo_start(caller: Caller = Depends(get_caller), session: Session = De
 @app.post("/api/v1/demo/reset", response_model=DemoOut, tags=["demo"])
 async def demo_reset(caller: Caller = Depends(get_caller), session: Session = Depends(get_session)) -> DemoOut:
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     demo.delete_sandbox(session, caller.user_id)
     return await demo_start(caller, session)
 
@@ -1202,7 +1202,7 @@ def class_invite(class_id: int, caller: Caller = Depends(get_caller),
     if not klass:
         raise HTTPException(status_code=404, detail="Класс не найден")
     if not _can_edit_class(session, klass, caller.user_id):
-        raise HTTPException(status_code=403, detail="Нет прав на управление классом")
+        raise HTTPException(status_code=403, detail="Нет доступа к этому классу")
     if not klass.invite_code:
         klass.invite_code = demo.new_invite_code()
         session.add(klass)
@@ -1288,7 +1288,7 @@ def pair_info(code: str, session: Session = Depends(get_session)) -> PairInfoOut
 def accept_pair(payload: PairRequest, caller: Caller = Depends(get_caller),
                 session: Session = Depends(get_session)) -> JoinOut:
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     profile = remember_profile(session, caller)
     student = services.accept_pair_code(session, payload.code, caller.user_id,
                                         profile.display_name if profile else caller.display_name)
@@ -1314,7 +1314,7 @@ async def parent_join(payload: JoinRequest, caller: Caller = Depends(get_caller)
     свободного ученика (живое демо на защите).
     """
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     if payload.code:
         demo_class = session.exec(select(SchoolClass).where(
             SchoolClass.invite_code == payload.code, SchoolClass.is_demo == True)).first()  # noqa: E712
@@ -1324,10 +1324,10 @@ async def parent_join(payload: JoinRequest, caller: Caller = Depends(get_caller)
         # Внутри MAX номер принимаем только с подписью платформы.
         if not verify_phone(payload.auth_date or "", payload.phone, caller.user_id, payload.hash or "",
                             settings.MAX_BOT_TOKEN):
-            raise HTTPException(status_code=403, detail="Номер телефона не подтверждён MAX. Попробуйте ещё раз.")
+            raise HTTPException(status_code=403, detail="MAX не подтвердил номер. Попробуйте ещё раз.")
     elif settings.MAX_VALIDATE_INIT_DATA or settings.bot_enabled:
         # На боевом стенде номер принимаем только подписанным MAX — ввести чужой нельзя.
-        raise HTTPException(status_code=401, detail="Подключение по номеру работает внутри MAX — откройте ссылку в MAX.")
+        raise HTTPException(status_code=401, detail="Откройте ссылку в приложении MAX.")
     klass = None
     if payload.code:
         klass = session.exec(select(SchoolClass).where(SchoolClass.invite_code == payload.code)).first()
@@ -1347,7 +1347,7 @@ async def parent_join(payload: JoinRequest, caller: Caller = Depends(get_caller)
         return JoinOut(
             status="not_found",
             message="Этого номера нет в списке класса. Попросите классного руководителя "
-                    "добавить ваш номер — и откройте ссылку ещё раз.",
+                    "добавить его и откройте ссылку ещё раз.",
             class_title=klass.title if klass else None,
         )
     names = []
@@ -1377,14 +1377,14 @@ async def send_documents(excursion_id: int, caller: Caller = Depends(get_caller)
     if not exc:
         raise HTTPException(status_code=404, detail="Выезд не найден")
     if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo из MAX")
+        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
     if not settings.bot_enabled:
-        return SendDocumentsOut(delivered=False, message="Бот выключен: скачайте документы по ссылке.")
+        return SendDocumentsOut(delivered=False, message="Отправка в чат сейчас не работает. Скачайте PDF или DOCX.")
     delivered = await BotService().send_documents(session, exc, caller.user_id)
     return SendDocumentsOut(
         delivered=delivered,
         message="Документы отправлены вам в чат с ботом." if delivered
-        else "Не получилось отправить файлы в чат — скачайте их по ссылке.",
+        else "Не получилось отправить файлы в чат. Скачайте PDF или DOCX.",
     )
 
 
