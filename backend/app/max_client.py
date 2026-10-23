@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+import ssl
 from typing import Any
 
+import certifi
 import httpx
 
 from .config import get_settings
@@ -17,9 +19,13 @@ class MaxClient:
         self.base = (base or s.MAX_API_BASE).rstrip("/")
         self.timeout = timeout
         if s.MAX_TLS_INSECURE:
-            self.verify: bool | str = False
+            self.verify: bool | ssl.SSLContext = False
         elif s.MAX_CA_BUNDLE:
-            self.verify = s.MAX_CA_BUNDLE
+            # API MAX подписан «Russian Trusted Root CA», а сервер загрузки файлов (fu.oneme.ru) —
+            # Let's Encrypt: доверяем обоим, а не только российскому корню.
+            ctx = ssl.create_default_context(cafile=certifi.where())
+            ctx.load_verify_locations(cafile=s.MAX_CA_BUNDLE)
+            self.verify = ctx
         else:
             self.verify = True
 
