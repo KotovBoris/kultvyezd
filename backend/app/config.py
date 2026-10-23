@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     MINIAPP_BASE_URL: str = "http://localhost:8080"
     PUBLIC_BASE_URL: str = "http://localhost:8080"
     MAX_VALIDATE_INIT_DATA: bool = False
+    INIT_DATA_MAX_AGE_SECONDS: int = 86400
+    # Токен служебных ручек (/api/v1/admin/*). Пусто — в строгом режиме они закрыты.
+    ADMIN_TOKEN: str = ""
+    # Секрет коротких ссылок на скачивание документов; пусто — выводится из токена бота.
+    DOWNLOAD_SECRET: str = ""
     AUTO_SEED: bool = True
     POLL_TIMEOUT: int = 30
     REMINDER_INTERVAL_SECONDS: int = 300

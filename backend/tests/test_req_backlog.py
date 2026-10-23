@@ -113,7 +113,7 @@ def test_CLS_6_add_student_joins_existing_excursions(client: TestClient) -> None
                     json={"full_name": "Новиков Новик Новикович", "parent_phone": "+79005550003"})
     assert r.status_code == 201
     sid = r.json()["id"]
-    dash = client.get(f"/api/v1/excursions/{exc['id']}/dashboard").json()
+    dash = client.get(f"/api/v1/excursions/{exc['id']}/dashboard", params={"user_id": TEACHER_A}).json()
     assert any(p["student_id"] == sid for p in dash["participants"])
 
 
@@ -122,7 +122,7 @@ def test_CLS_7_remove_student(client: TestClient) -> None:
     sid = klass["students"][0]["id"]
     r = client.delete(f"/api/v1/classes/{klass['id']}/students/{sid}", params={"user_id": TEACHER_A})
     assert r.status_code == 200
-    roster = client.get(f"/api/v1/classes/{klass['id']}/roster").json()
+    roster = client.get(f"/api/v1/classes/{klass['id']}/roster", params={"user_id": TEACHER_A}).json()
     assert not any(s["id"] == sid for s in roster["students"])
 
 
@@ -209,7 +209,7 @@ def test_STAT_1_dashboard_has_bot_status(client: TestClient, first_class) -> Non
 def test_STAT_2_tag_unactivated_requires_chat(client: TestClient) -> None:
     klass = _new_class(client)
     exc = make_excursion(client, klass)
-    r = client.post(f"/api/v1/excursions/{exc['id']}/tag-unactivated")
+    r = client.post(f"/api/v1/excursions/{exc['id']}/tag-unactivated", params={"user_id": TEACHER_A})
     assert r.status_code == 400
 
 
@@ -217,7 +217,7 @@ def test_STAT_3_tag_unactivated_with_chat(client: TestClient) -> None:
     klass = _new_class(client)
     client.patch(f"/api/v1/classes/{klass['id']}", json={"chat_id": 555777, "user_id": TEACHER_A})
     exc = make_excursion(client, klass)
-    r = client.post(f"/api/v1/excursions/{exc['id']}/tag-unactivated")
+    r = client.post(f"/api/v1/excursions/{exc['id']}/tag-unactivated", params={"user_id": TEACHER_A})
     assert r.status_code == 200
     body = r.json()
     assert body["tagged"] >= 1 and body["names"]
@@ -227,14 +227,14 @@ def test_STAT_4_publish_uses_class_chat(client: TestClient) -> None:
     klass = _new_class(client)
     client.patch(f"/api/v1/classes/{klass['id']}", json={"chat_id": 555778, "user_id": TEACHER_A})
     exc = make_excursion(client, klass)
-    r = client.post(f"/api/v1/excursions/{exc['id']}/publish")
+    r = client.post(f"/api/v1/excursions/{exc['id']}/publish", params={"user_id": TEACHER_A})
     assert r.status_code == 200 and r.json()["chat_id"] == 555778
 
 
 def test_STAT_5_publish_without_chat_400(client: TestClient) -> None:
     klass = _new_class(client)
     exc = make_excursion(client, klass)
-    r = client.post(f"/api/v1/excursions/{exc['id']}/publish")
+    r = client.post(f"/api/v1/excursions/{exc['id']}/publish", params={"user_id": TEACHER_A})
     assert r.status_code == 400
 
 

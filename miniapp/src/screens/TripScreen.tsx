@@ -162,6 +162,15 @@ export default function TripScreen({ id }: { id: number }) {
     if (result === "shared") toast("Приглашение отправлено в чат.");
   }
 
+  async function downloadDoc(fmt: "pdf" | "docx") {
+    try {
+      const links = await api.orderLinks(id);
+      downloadFile(fmt === "pdf" ? links.pdf_url : links.docx_url, `${fileBase}.${fmt}`);
+    } catch (e) {
+      toast(errorText(e), "error");
+    }
+  }
+
   async function sendDocs() {
     setBusy("docs");
     try {
@@ -187,7 +196,7 @@ export default function TripScreen({ id }: { id: number }) {
           </Button>
         ) : (
           <Button size="large" stretched loading={busy === "docs"} iconBefore={<Icon name="doc" size={20} />}
-            onClick={() => (isInsideMax() ? void sendDocs() : downloadFile(api.orderUrl(id, "pdf"), `${fileBase}.pdf`))}>
+            onClick={() => void (isInsideMax() ? sendDocs() : downloadDoc("pdf"))}>
             {isInsideMax() ? "Прислать документы в чат" : "Скачать документы (PDF)"}
           </Button>
         )
@@ -291,10 +300,10 @@ export default function TripScreen({ id }: { id: number }) {
                 В чат MAX
               </Button>
             )}
-            <Button size="medium" variant="secondary" onClick={() => downloadFile(api.orderUrl(id, "pdf"), `${fileBase}.pdf`)}>
+            <Button size="medium" variant="secondary" onClick={() => void downloadDoc("pdf")}>
               PDF
             </Button>
-            <Button size="medium" variant="secondary" onClick={() => downloadFile(api.orderUrl(id, "docx"), `${fileBase}.docx`)}>
+            <Button size="medium" variant="secondary" onClick={() => void downloadDoc("docx")}>
               DOCX
             </Button>
           </div>

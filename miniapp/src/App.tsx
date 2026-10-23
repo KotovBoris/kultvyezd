@@ -154,6 +154,22 @@ export default function App() {
   const me = state.me;
   const bothRoles = Boolean(me && me.is_teacher && me.is_parent);
 
+  // На боевом стенде без подписи MAX сервер не знает, кто вы: работаем только внутри MAX.
+  if (me && !me.user_id && !isInsideMax()) {
+    return (
+      <div className="cg-app">
+        <div className="cg-page">
+          <Notice tone="info" icon="info" title="Откройте ClassGo в MAX">
+            ClassGo работает внутри мессенджера MAX: там мы знаем, что это вы, и никто не ответит за вашего ребёнка.
+          </Notice>
+          <a className="cg-callbtn cg-mt" href={`https://max.ru/${me.bot_username}`}>
+            Открыть в MAX
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="cg-app">
       {depth > 1 && !isInsideMax() && (

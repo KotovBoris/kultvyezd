@@ -88,13 +88,13 @@ def test_FIN_4_sandbox_parent_sees_own_child(client: TestClient) -> None:
 def test_FIN_5_virtual_parents_answer(client: TestClient) -> None:
     info = client.post("/api/v1/demo/start", params={"user_id": USER}).json()
     events = client.get("/api/v1/culture-events").json()
-    klass = {"id": info["class_id"]}
-    exc = make_excursion(client, klass, events[1]["id"], user_id=USER)
+    klass = {"id": info["class_id"], "owner_user_id": USER}
+    exc = make_excursion(client, klass, events[1]["id"])
     with Session(engine) as s:
         planned = s.exec(select(DemoAnswer).where(DemoAnswer.excursion_id == exc["id"])).all()
         assert planned, "виртуальные родители должны запланировать ответы"
         demo.process_due_answers(s, now=datetime.utcnow() + timedelta(minutes=5))
-    dash = client.get(f"/api/v1/excursions/{exc['id']}/dashboard").json()
+    dash = client.get(f"/api/v1/excursions/{exc['id']}/dashboard", params={"user_id": USER}).json()
     statuses = [p["consent_status"] for p in dash["participants"]]
     assert statuses.count("APPROVED") >= 6
     assert statuses.count("REJECTED") == 1
@@ -216,7 +216,7 @@ def test_FIN_13_change_answer_rules(client: TestClient) -> None:
 def test_FIN_14_teacher_paper_consent(client: TestClient) -> None:
     info = client.post("/api/v1/demo/start", params={"user_id": USER}).json()
     exc_id = info["excursion_ids"][0]
-    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()
+    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard", params={"user_id": USER}).json()
     pending = next(p for p in dash["participants"] if p["consent_status"] == "PENDING"
                    and p["student_id"] != info["child_student_id"])
     r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": USER},
@@ -255,7 +255,7 @@ def test_FIN_16_roll_call_milestones_and_cancel(client: TestClient) -> None:
     owner = 7_700_400
     info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
     exc_id = info["excursion_ids"][0]
-    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()
+    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard", params={"user_id": owner}).json()
     going = next(p for p in dash["participants"] if p["consent_status"] == "APPROVED")
     assert client.post(f"/api/v1/excursions/{exc_id}/attendance", params={"user_id": owner + 1},
                        json={"student_id": going["student_id"], "present": False}).status_code == 403
@@ -265,18 +265,26 @@ def test_FIN_16_roll_call_milestones_and_cancel(client: TestClient) -> None:
     m = client.post(f"/api/v1/excursions/{exc_id}/milestone", params={"user_id": owner},
                     json={"kind": "departed"}).json()
     assert going["full_name"] in m["absent"]
-    trip = client.get(f"/api/v1/excursions/{exc_id}").json()
+    trip = client.get(f"/api/v1/excursions/{exc_id}", params={"user_id": owner}).json()
     assert trip["departed_at"] and not trip["returned_at"]
     # Повторное «выехали» не рассылает сообщения заново и не сдвигает время
     again = client.post(f"/api/v1/excursions/{exc_id}/milestone", params={"user_id": owner},
                         json={"kind": "departed"}).json()
     assert again["notified"] == 0 and again["at"] == m["at"]
+    # Группа уже выехала — отменить выезд нельзя (родителям ушло бы «ребёнок остаётся на уроках»)
+    assert client.post(f"/api/v1/excursions/{exc_id}/cancel", params={"user_id": owner}).status_code == 409
+    assert client.post(f"/api/v1/excursions/{exc_id}/milestone", params={"user_id": owner},
+                       json={"kind": "returned"}).status_code == 200
+
+    # Отмена до выезда: ответить нельзя, «выехали» нельзя, родитель видит отмену
+    info = client.post("/api/v1/demo/reset", params={"user_id": owner}).json()
+    exc_id = info["excursion_ids"][0]
+    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard", params={"user_id": owner}).json()
     c = client.post(f"/api/v1/excursions/{exc_id}/cancel", params={"user_id": owner}).json()
     assert c["ok"] is True
-    assert client.get(f"/api/v1/excursions/{exc_id}").json()["cancelled"] is True
-    # После отмены: «вернулись» нельзя, ответить нельзя, родитель видит отмену
+    assert client.get(f"/api/v1/excursions/{exc_id}", params={"user_id": owner}).json()["cancelled"] is True
     assert client.post(f"/api/v1/excursions/{exc_id}/milestone", params={"user_id": owner},
-                       json={"kind": "returned"}).status_code == 409
+                       json={"kind": "departed"}).status_code == 409
     waiting = next(p for p in dash["participants"] if p["consent_status"] == "PENDING")
     r = client.post(f"/api/v1/excursions/{exc_id}/consent", params={"user_id": owner},
                     json={"student_id": waiting["student_id"], "status": "APPROVED", "source": "paper",
@@ -331,7 +339,7 @@ def test_FIN_20_consent_only_by_parent_or_teacher_paper(client: TestClient) -> N
     owner = 7_700_700
     info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
     exc_id, own_child = info["excursion_ids"][0], info["child_student_id"]
-    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()
+    dash = client.get(f"/api/v1/excursions/{exc_id}/dashboard", params={"user_id": owner}).json()
     other = next(p for p in dash["participants"]
                  if p["consent_status"] == "PENDING" and p["student_id"] != own_child)
     stranger = owner + 77
@@ -348,7 +356,8 @@ def test_FIN_20_consent_only_by_parent_or_teacher_paper(client: TestClient) -> N
                     json={"student_id": other["student_id"], "status": "APPROVED", "source": "paper",
                           "parent_name": "Родитель (бумажный бланк, отметил учитель)"})
     assert r.status_code == 200 and r.json()["changed"] is True
-    row = next(p for p in client.get(f"/api/v1/excursions/{exc_id}/dashboard").json()["participants"]
+    row = next(p for p in client.get(f"/api/v1/excursions/{exc_id}/dashboard",
+                                     params={"user_id": owner}).json()["participants"]
                if p["student_id"] == other["student_id"])
     assert row["signed_source"] == "paper" and row["signed_by_max_user_id"] is None
     # Родитель без принятого соглашения о ПЭП ответить не может, после принятия — может

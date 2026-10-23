@@ -315,7 +315,9 @@ export const api = {
   remind: (id: number) =>
     post<{ targeted: number; delivered: number; recipients: string[] }>(`/api/v1/excursions/${id}/remind-unconfirmed`),
   sendDocuments: (id: number) => post<{ delivered: boolean; message: string }>(`/api/v1/excursions/${id}/send-documents`),
-  orderUrl: (id: number, fmt: "pdf" | "docx") => `${BASE}/api/v1/excursions/${id}/export-order?fmt=${fmt}`,
+  /** Короткие подписанные ссылки на PDF/DOCX: MAX скачивает файл без заголовков авторизации. */
+  orderLinks: (id: number) =>
+    post<{ pdf_url: string; docx_url: string }>(`/api/v1/excursions/${id}/export-order`),
 
   consent: (excursionId: number, payload: Record<string, unknown>) =>
     post<ConsentResponse>(`/api/v1/excursions/${excursionId}/consent`, payload),

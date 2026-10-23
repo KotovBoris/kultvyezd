@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hashlib
+import hmac
 import io
 import logging
 import secrets
+import time as time_mod
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timezone
 
@@ -15,7 +18,7 @@ from openpyxl import load_workbook
 from sqlmodel import Session, select
 
 from . import __version__, demo, services
-from .auth import Caller, caller_from_request, get_caller, remember_profile
+from .auth import Caller, get_caller, remember_profile, require_user, strict_auth
 from .bot import BotService, class_chat_id
 from .catalog_seed import SOURCE, refresh_catalog_dates, seed_all
 from .config import get_settings
@@ -94,14 +97,6 @@ _reminder_task: asyncio.Task | None = None
 _demo_task: asyncio.Task | None = None
 
 
-def _require_valid_parent(init_data: str | None) -> None:
-    if not settings.MAX_VALIDATE_INIT_DATA:
-        return
-    valid, _ = validate_webapp_data(init_data or "", settings.MAX_BOT_TOKEN)
-    if not valid:
-        raise HTTPException(status_code=401, detail="Не удалось проверить вход. Закройте и снова откройте ClassGo в MAX.")
-
-
 def _naive_utc(value: datetime | None) -> datetime | None:
     """Дедлайн из браузера приходит с часовым поясом — храним в UTC без зоны, как datetime.utcnow()."""
     if value is None or value.tzinfo is None:
@@ -168,7 +163,8 @@ def _student_out(session: Session, s: Student) -> StudentOut:
 
 def _can_edit_class(session: Session, klass: SchoolClass, user_id: int | None) -> bool:
     if klass.owner_user_id is None:
-        return True
+        # Старые классы без владельца (сид для локальной проверки) — только вне боевого режима.
+        return not strict_auth()
     if user_id is None:
         return False
     if klass.owner_user_id == user_id:
@@ -181,7 +177,7 @@ def _can_edit_class(session: Session, klass: SchoolClass, user_id: int | None) -
 
 def _can_edit_school(session: Session, school: School, user_id: int | None) -> bool:
     if school.owner_user_id is None:
-        return True
+        return not strict_auth()
     if user_id is None:
         return False
     if school.owner_user_id == user_id:
@@ -190,6 +186,64 @@ def _can_edit_school(session: Session, school: School, user_id: int | None) -> b
         select(SchoolAccess).where(SchoolAccess.school_id == school.id, SchoolAccess.user_id == user_id)
     ).first()
     return bool(access and access.role in (AccessRole.OWNER, AccessRole.EDIT))
+
+
+def _can_view_class(session: Session, klass: SchoolClass, user_id: int | None) -> bool:
+    """Учитель класса или тот, кому открыли доступ (в том числе только на просмотр)."""
+    if _can_edit_class(session, klass, user_id):
+        return True
+    if not user_id:
+        return False
+    return session.exec(
+        select(ClassAccess).where(ClassAccess.class_id == klass.id, ClassAccess.user_id == user_id)
+    ).first() is not None
+
+
+def _is_parent_of(session: Session, student_id: int, user_id: int | None) -> bool:
+    if not user_id:
+        return False
+    return any(p.max_user_id == user_id and not p.is_virtual for p in services.student_parents(session, student_id))
+
+
+def _can_view_excursion(session: Session, exc: Excursion, user_id: int | None) -> bool:
+    klass = session.get(SchoolClass, exc.class_id)
+    if klass and _can_view_class(session, klass, user_id):
+        return True
+    return any(_is_parent_of(session, p.student_id, user_id) for p in exc.participants)
+
+
+def _class_editor(session: Session, class_id: int, caller: Caller) -> SchoolClass:
+    klass = session.get(SchoolClass, class_id)
+    if not klass:
+        raise HTTPException(status_code=404, detail="Класс не найден")
+    if not _can_edit_class(session, klass, caller.user_id):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому классу")
+    return klass
+
+
+def _teacher_excursion(session: Session, excursion_id: int, caller: Caller, edit: bool = True) -> Excursion:
+    exc = session.get(Excursion, excursion_id)
+    if not exc:
+        raise HTTPException(status_code=404, detail="Выезд не найден")
+    klass = session.get(SchoolClass, exc.class_id)
+    allowed = klass and (_can_edit_class(session, klass, caller.user_id) if edit
+                         else _can_view_class(session, klass, caller.user_id))
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Это может сделать только классный руководитель")
+    return exc
+
+
+def _download_sig(excursion_id: int, fmt: str, expires: int) -> str:
+    """Подпись короткой ссылки на документ: MAX скачивает файл без заголовков авторизации."""
+    key = (settings.DOWNLOAD_SECRET or f"classgo-download:{settings.MAX_BOT_TOKEN}").encode()
+    return hmac.new(key, f"{excursion_id}:{fmt}:{expires}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def _download_url(excursion_id: int, fmt: str, ttl: int = 600) -> str:
+    expires = int(time_mod.time()) + ttl
+    base = settings.PUBLIC_BASE_URL.rstrip("/")
+    return (f"{base}/api/v1/excursions/{excursion_id}/export-order?fmt={fmt}"
+            f"&exp={expires}&sig={_download_sig(excursion_id, fmt, expires)}")
 
 
 def _class_out(session: Session, k: SchoolClass, user_id: int | None = None) -> ClassOut:
@@ -365,7 +419,10 @@ def list_schools(query: str | None = Query(default=None), session: Session = Dep
 
 
 @app.post("/api/v1/schools", response_model=SchoolOut, status_code=201, tags=["schools"])
-def create_school(payload: SchoolCreate, session: Session = Depends(get_session)) -> SchoolOut:
+def create_school(payload: SchoolCreate, caller: Caller = Depends(get_caller),
+                  session: Session = Depends(get_session)) -> SchoolOut:
+    if strict_auth():
+        payload.user_id = require_user(caller)
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=422, detail="Укажите название школы")
@@ -459,6 +516,8 @@ async def import_class(
     caller: Caller = Depends(get_caller),
     session: Session = Depends(get_session),
 ) -> ImportResult:
+    if strict_auth():
+        require_user(caller)
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Файл пустой")
@@ -515,7 +574,9 @@ async def import_class(
 @app.post("/api/v1/classes", response_model=ClassOut, status_code=201, tags=["classes"])
 def create_class(payload: ClassCreate, caller: Caller = Depends(get_caller),
                  session: Session = Depends(get_session)) -> ClassOut:
-    if caller.verified or not payload.user_id:
+    if strict_auth():
+        require_user(caller)
+    if strict_auth() or caller.verified or not payload.user_id:
         payload.user_id = caller.user_id
     if not payload.grade.strip():
         raise HTTPException(status_code=422, detail="Укажите номер класса")
@@ -550,8 +611,8 @@ def create_class(payload: ClassCreate, caller: Caller = Depends(get_caller),
 def list_classes(mine: bool = Query(default=False, description="Только классы текущего пользователя"),
                  caller: Caller = Depends(get_caller),
                  session: Session = Depends(get_session)) -> list[ClassOut]:
-    # mine=false — общий журнал (веб-проверка, совместимость); mine=true — классы учителя.
-    if mine:
+    # mine=false — общий журнал только для локальной проверки; на стенде всегда свои классы.
+    if mine or strict_auth():
         ids = _user_class_ids(session, caller.user_id)
         classes = [session.get(SchoolClass, i) for i in ids]
     else:
@@ -565,13 +626,15 @@ def class_roster(class_id: int, caller: Caller = Depends(get_caller),
     k = session.get(SchoolClass, class_id)
     if not k:
         raise HTTPException(status_code=404, detail="Класс не найден")
+    if not _can_view_class(session, k, caller.user_id):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому классу")
     return _class_out(session, k, caller.user_id)
 
 
 @app.patch("/api/v1/classes/{class_id}", response_model=ClassOut, tags=["classes"])
 def update_class(class_id: int, payload: ClassUpdate, caller: Caller = Depends(get_caller),
                  session: Session = Depends(get_session)) -> ClassOut:
-    if caller.verified or not payload.user_id:
+    if strict_auth() or caller.verified or not payload.user_id:
         payload.user_id = caller.user_id
     k = session.get(SchoolClass, class_id)
     if not k:
@@ -671,9 +734,7 @@ def share_class(class_id: int, payload: ShareRequest,
 @app.post("/api/v1/excursions", response_model=ExcursionOut, status_code=201, tags=["excursions"])
 async def create_excursion(payload: ExcursionCreate, caller: Caller = Depends(get_caller),
                            session: Session = Depends(get_session)) -> ExcursionOut:
-    klass = session.get(SchoolClass, payload.class_id)
-    if not klass:
-        raise HTTPException(status_code=404, detail="Класс не найден")
+    klass = _class_editor(session, payload.class_id, caller)
     event = session.get(CultureEvent, payload.culture_event_id) if payload.culture_event_id else None
 
     exc = Excursion(
@@ -724,7 +785,7 @@ def list_excursions(mine: bool = Query(default=False, description="Только 
                     caller: Caller = Depends(get_caller),
                     session: Session = Depends(get_session)) -> list[ExcursionOut]:
     stmt = select(Excursion)
-    if mine:
+    if mine or strict_auth():
         stmt = stmt.where(Excursion.class_id.in_(_user_class_ids(session, caller.user_id) or [-1]))
     if class_id is not None:
         stmt = stmt.where(Excursion.class_id == class_id)
@@ -734,18 +795,20 @@ def list_excursions(mine: bool = Query(default=False, description="Только 
 
 
 @app.get("/api/v1/excursions/{excursion_id}", response_model=ExcursionOut, tags=["excursions"])
-def get_excursion(excursion_id: int, session: Session = Depends(get_session)) -> ExcursionOut:
+def get_excursion(excursion_id: int, caller: Caller = Depends(get_caller),
+                  session: Session = Depends(get_session)) -> ExcursionOut:
     exc = session.get(Excursion, excursion_id)
     if not exc:
         raise HTTPException(status_code=404, detail="Выезд не найден")
+    if not _can_view_excursion(session, exc, caller.user_id):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому выезду")
     return _excursion_out(exc, session, with_stats=True)
 
 
 @app.get("/api/v1/excursions/{excursion_id}/dashboard", response_model=DashboardOut, tags=["excursions"])
-def excursion_dashboard(excursion_id: int, session: Session = Depends(get_session)) -> DashboardOut:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+def excursion_dashboard(excursion_id: int, caller: Caller = Depends(get_caller),
+                        session: Session = Depends(get_session)) -> DashboardOut:
+    exc = _teacher_excursion(session, excursion_id, caller, edit=False)
     data = services.dashboard(session, exc)
     return DashboardOut(
         excursion=_excursion_out(exc, session, with_stats=True),
@@ -756,44 +819,47 @@ def excursion_dashboard(excursion_id: int, session: Session = Depends(get_sessio
 
 
 @app.get("/api/v1/excursions/{excursion_id}/participants", tags=["excursions"])
-def excursion_participants(excursion_id: int, session: Session = Depends(get_session)) -> dict:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+def excursion_participants(excursion_id: int, caller: Caller = Depends(get_caller),
+                           session: Session = Depends(get_session)) -> dict:
+    exc = _teacher_excursion(session, excursion_id, caller, edit=False)
     data = services.dashboard(session, exc)
     return {"excursion": _excursion_out(exc).model_dump(mode="json"), "participants": data["participants"]}
 
 
 @app.post("/api/v1/excursions/{excursion_id}/consent", response_model=ConsentResponse, tags=["consent"])
-async def post_consent(excursion_id: int, payload: ConsentRequest, request: Request,
+async def post_consent(excursion_id: int, payload: ConsentRequest, caller: Caller = Depends(get_caller),
                        session: Session = Depends(get_session)) -> ConsentResponse:
-    _require_valid_parent(payload.init_data or request.headers.get("X-Max-Init-Data"))
-    query_uid = request.query_params.get("user_id", "")
-    caller = caller_from_request(request, payload.max_user_id or (int(query_uid) if query_uid.isdigit() else None))
+    if not caller.user_id and not strict_auth() and payload.max_user_id:
+        caller = Caller(user_id=payload.max_user_id, verified=False)  # совместимость локальных скриптов
     exc = session.get(Excursion, excursion_id)
     if not exc:
         raise HTTPException(status_code=404, detail="Выезд не найден")
     if payload.status not in ("APPROVED", "REJECTED"):
         raise HTTPException(status_code=422, detail="status должен быть APPROVED или REJECTED")
     paper = payload.source == "paper"
+    signer_name, signer_phone = payload.parent_name or caller.display_name, payload.parent_phone
     if caller.user_id:
         if paper:
             klass = session.get(SchoolClass, exc.class_id)
             if not (klass and _can_edit_class(session, klass, caller.user_id)):
                 raise HTTPException(status_code=403, detail="Бумажные бланки отмечает только классный руководитель")
-        elif not any(p.max_user_id == caller.user_id for p in services.student_parents(session, payload.student_id)):
-            raise HTTPException(status_code=403, detail="Ответить может только родитель этого ученика")
         else:
+            contact = next((p for p in services.student_parents(session, payload.student_id)
+                            if p.max_user_id == caller.user_id and not p.is_virtual), None)
+            if not contact:
+                raise HTTPException(status_code=403, detail="Ответить может только родитель этого ученика")
             profile = session.exec(select(UserProfile).where(UserProfile.max_user_id == caller.user_id)).first()
             if not (profile and profile.terms_accepted_at):
                 raise HTTPException(status_code=409, detail="Сначала примите соглашение о подписи "
                                                             "и дайте согласие на обработку данных")
-    elif settings.MAX_VALIDATE_INIT_DATA or settings.bot_enabled:
+            # Подписант — тот, кого школа знает по списку класса, а не имя из запроса.
+            signer_name, signer_phone = contact.full_name or caller.display_name, contact.phone_number
+    elif strict_auth():
         raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX, чтобы ответить")
     try:
         p, changed, message = services.apply_consent(
             session, exc, student_id=payload.student_id, status=payload.status,
-            parent_phone=payload.parent_phone, parent_name=payload.parent_name or caller.display_name,
+            parent_phone=signer_phone, parent_name=signer_name,
             reason=payload.reason, source=payload.source,
             # Бумажный бланк — подпись родителя на бумаге; MAX ID учителя в подпись не записываем.
             max_user_id=None if paper else caller.user_id,
@@ -837,16 +903,6 @@ def reset_consent(excursion_id: int, payload: ConsentResetRequest, caller: Calle
         student_id=p.student_id, consent_status=p.consent_status, ticket_status=p.ticket_status,
         changed=changed, message=message, signed_by_name=p.signed_by_name, signed_at=p.signed_at,
     )
-
-
-def _teacher_excursion(session: Session, excursion_id: int, caller: Caller) -> Excursion:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
-    klass = session.get(SchoolClass, exc.class_id)
-    if not klass or not _can_edit_class(session, klass, caller.user_id):
-        raise HTTPException(status_code=403, detail="Это может сделать только классный руководитель")
-    return exc
 
 
 @app.post("/api/v1/excursions/{excursion_id}/attendance", tags=["trip-day"])
@@ -896,6 +952,8 @@ async def cancel_trip(excursion_id: int, caller: Caller = Depends(get_caller),
     exc = _teacher_excursion(session, excursion_id, caller)
     if exc.cancelled:
         return {"ok": True, "notified": 0}
+    if exc.departed_at:
+        raise HTTPException(status_code=409, detail="Группа уже выехала — отменить выезд нельзя")
     exc.cancelled = True
     exc.status = ExcursionStatus.CLOSED
     session.add(exc)
@@ -905,11 +963,15 @@ async def cancel_trip(excursion_id: int, caller: Caller = Depends(get_caller),
 
 
 @app.post("/api/v1/excursions/{excursion_id}/ticket-confirm", response_model=ConsentResponse, tags=["consent"])
-async def post_ticket_confirm(excursion_id: int, payload: TicketConfirmRequest,
+async def post_ticket_confirm(excursion_id: int, payload: TicketConfirmRequest, caller: Caller = Depends(get_caller),
                               session: Session = Depends(get_session)) -> ConsentResponse:
     exc = session.get(Excursion, excursion_id)
     if not exc:
         raise HTTPException(status_code=404, detail="Выезд не найден")
+    klass = session.get(SchoolClass, exc.class_id)
+    if not (_is_parent_of(session, payload.student_id, caller.user_id)
+            or (klass and _can_edit_class(session, klass, caller.user_id))):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому ученику")
     try:
         p, changed, message = services.confirm_ticket(
             session, exc, student_id=payload.student_id, ticket_number=payload.ticket_number,
@@ -929,10 +991,9 @@ async def post_ticket_confirm(excursion_id: int, payload: TicketConfirmRequest,
 
 
 @app.post("/api/v1/excursions/{excursion_id}/remind-unconfirmed", response_model=RemindResponse, tags=["consent"])
-async def remind_unconfirmed(excursion_id: int, session: Session = Depends(get_session)) -> RemindResponse:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+async def remind_unconfirmed(excursion_id: int, caller: Caller = Depends(get_caller),
+                             session: Session = Depends(get_session)) -> RemindResponse:
+    exc = _teacher_excursion(session, excursion_id, caller)
     bot = BotService()
     targeted, delivered = await bot.remind(exc, session)
     return RemindResponse(targeted=targeted, delivered=len(delivered), recipients=delivered)
@@ -940,10 +1001,9 @@ async def remind_unconfirmed(excursion_id: int, session: Session = Depends(get_s
 
 @app.post("/api/v1/excursions/{excursion_id}/publish", tags=["consent"])
 async def publish_excursion(excursion_id: int, chat_id: int | None = Query(default=None),
+                            caller: Caller = Depends(get_caller),
                             session: Session = Depends(get_session)) -> dict:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+    exc = _teacher_excursion(session, excursion_id, caller)
     target_chat = chat_id if chat_id is not None else class_chat_id(session, exc)
     if target_chat is None:
         raise HTTPException(status_code=400, detail="Чат класса не указан.")
@@ -955,10 +1015,9 @@ async def publish_excursion(excursion_id: int, chat_id: int | None = Query(defau
 
 @app.post("/api/v1/excursions/{excursion_id}/tag-unactivated", tags=["consent"])
 async def tag_unactivated(excursion_id: int, chat_id: int | None = Query(default=None),
+                          caller: Caller = Depends(get_caller),
                           session: Session = Depends(get_session)) -> dict:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+    exc = _teacher_excursion(session, excursion_id, caller)
     names = services.unactivated_children(session, exc)
     if not names:
         return {"ok": True, "tagged": 0, "names": [], "delivered": False}
@@ -972,10 +1031,10 @@ async def tag_unactivated(excursion_id: int, chat_id: int | None = Query(default
 
 
 @app.post("/api/v1/excursions/{excursion_id}/export-order", response_model=DocumentOut, tags=["documents"])
-def generate_order(excursion_id: int, session: Session = Depends(get_session)) -> DocumentOut:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+def generate_order(excursion_id: int, caller: Caller = Depends(get_caller),
+                   session: Session = Depends(get_session)) -> DocumentOut:
+    """Короткие ссылки на PDF и DOCX (живут 10 минут) — только учителю класса."""
+    _teacher_excursion(session, excursion_id, caller, edit=False)
     last = session.exec(
         select(DocumentArtifact).where(DocumentArtifact.excursion_id == excursion_id)
     ).all()
@@ -983,11 +1042,10 @@ def generate_order(excursion_id: int, session: Session = Depends(get_session)) -
     filename = f"Приказ_выезд_{excursion_id}.docx"
     session.add(DocumentArtifact(excursion_id=excursion_id, kind="order", version=version, filename=filename))
     session.commit()
-    base = settings.PUBLIC_BASE_URL.rstrip("/")
     return DocumentOut(
         excursion_id=excursion_id,
-        docx_url=f"{base}/api/v1/excursions/{excursion_id}/export-order?fmt=docx",
-        pdf_url=f"{base}/api/v1/excursions/{excursion_id}/export-order?fmt=pdf",
+        docx_url=_download_url(excursion_id, "docx"),
+        pdf_url=_download_url(excursion_id, "pdf"),
         version=version,
         generated_at=datetime.utcnow(),
     )
@@ -995,10 +1053,17 @@ def generate_order(excursion_id: int, session: Session = Depends(get_session)) -
 
 @app.get("/api/v1/excursions/{excursion_id}/export-order", tags=["documents"])
 def download_order(excursion_id: int, fmt: str = Query(default="docx", pattern="^(docx|pdf)$"),
+                   exp: int | None = Query(default=None), sig: str | None = Query(default=None),
+                   caller: Caller = Depends(get_caller),
                    session: Session = Depends(get_session)) -> Response:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+    signed = bool(exp and sig and exp >= time_mod.time()
+                  and hmac.compare_digest(sig, _download_sig(excursion_id, fmt, exp)))
+    if signed:
+        exc = session.get(Excursion, excursion_id)
+        if not exc:
+            raise HTTPException(status_code=404, detail="Выезд не найден")
+    else:
+        exc = _teacher_excursion(session, excursion_id, caller, edit=False)
     if fmt == "pdf":
         content = build_order_pdf(session, exc)
         return Response(content=content, media_type="application/pdf",
@@ -1012,10 +1077,12 @@ def download_order(excursion_id: int, fmt: str = Query(default="docx", pattern="
 
 
 @app.post("/api/v1/students/{student_id}/link-code", response_model=LinkCodeOut, tags=["consent"])
-def create_link_code(student_id: int, session: Session = Depends(get_session)) -> LinkCodeOut:
+def create_link_code(student_id: int, caller: Caller = Depends(get_caller),
+                     session: Session = Depends(get_session)) -> LinkCodeOut:
     student = session.get(Student, student_id)
     if not student:
         raise HTTPException(status_code=404, detail="Ученик не найден")
+    _class_editor(session, student.class_id, caller)
     code = secrets.token_urlsafe(8)
     parent = session.exec(select(ParentContact).where(ParentContact.student_id == student_id)).first()
     session.add(BotLinkCode(code=code, student_id=student_id, parent_phone=parent.phone_number if parent else ""))
@@ -1026,19 +1093,28 @@ def create_link_code(student_id: int, session: Session = Depends(get_session)) -
 
 @app.get("/api/v1/parent/context", tags=["parent"])
 def parent_context(max_user_id: int = Query(..., description="MAX user_id родителя (после привязки)"),
+                   caller: Caller = Depends(get_caller),
                    session: Session = Depends(get_session)) -> dict:
+    if (caller.user_id or strict_auth()) and caller.user_id != max_user_id:
+        raise HTTPException(status_code=403, detail="Можно смотреть только своих детей")
     children = services.parent_context(session, max_user_id)
     return {"max_user_id": max_user_id, "children": children, "found": bool(children)}
 
 
 @app.get("/api/v1/parents/search", response_model=list[ParentSearchRow], tags=["parent"])
-def parents_search(query: str = Query(..., min_length=2),
+def parents_search(query: str = Query(..., min_length=2), caller: Caller = Depends(get_caller),
                    session: Session = Depends(get_session)) -> list[ParentSearchRow]:
+    """Поиск по родителям — только в своих классах учителя."""
+    own = set(_user_class_ids(session, caller.user_id))
+    if strict_auth() and not own:
+        raise HTTPException(status_code=403, detail="Поиск доступен только классному руководителю")
     q = query.strip().lower()
     rows: list[ParentSearchRow] = []
     for parent in session.exec(select(ParentContact)).all():
         student = session.get(Student, parent.student_id)
         if not student:
+            continue
+        if (strict_auth() or caller.user_id) and student.class_id not in own:
             continue
         haystack = f"{parent.full_name} {parent.phone_number} {student.full_name}".lower()
         if q not in haystack:
@@ -1056,6 +1132,9 @@ def parents_search(query: str = Query(..., min_length=2),
 
 @app.post("/api/v1/parent/claim", tags=["parent"])
 def parent_claim(payload: ParentClaimRequest, session: Session = Depends(get_session)) -> dict:
+    """Устаревшая привязка «выбрать себя из списка». На стенде отключена: только по номеру из MAX."""
+    if strict_auth():
+        raise HTTPException(status_code=410, detail="Подключение — по ссылке класса и номеру телефона в MAX")
     parent = session.get(ParentContact, payload.parent_id)
     if not parent:
         raise HTTPException(status_code=404, detail="Контакт родителя не найден")
@@ -1075,7 +1154,10 @@ def parent_claim(payload: ParentClaimRequest, session: Session = Depends(get_ses
 
 
 @app.post("/api/v1/parent/confirm-link", tags=["parent"])
-def parent_confirm_link(payload: ParentLinkAction, session: Session = Depends(get_session)) -> dict:
+def parent_confirm_link(payload: ParentLinkAction, caller: Caller = Depends(get_caller),
+                        session: Session = Depends(get_session)) -> dict:
+    if (caller.user_id or strict_auth()) and caller.user_id != payload.max_user_id:
+        raise HTTPException(status_code=403, detail="Подтвердить привязку может только сам родитель")
     parent = services.confirm_parent_link(session, payload.student_id, payload.max_user_id, payload.accept)
     if not parent:
         raise HTTPException(status_code=404, detail="Запись не найдена")
@@ -1103,7 +1185,10 @@ def parent_revoke(caller: Caller = Depends(get_caller), session: Session = Depen
 
 
 @app.post("/api/v1/parent/notifications", tags=["parent"])
-def parent_notifications(payload: NotificationsRequest, session: Session = Depends(get_session)) -> dict:
+def parent_notifications(payload: NotificationsRequest, caller: Caller = Depends(get_caller),
+                         session: Session = Depends(get_session)) -> dict:
+    if (caller.user_id or strict_auth()) and caller.user_id != payload.max_user_id:
+        raise HTTPException(status_code=403, detail="Можно менять только свои напоминания")
     affected = services.set_notifications(session, payload.max_user_id, payload.enabled)
     return {"ok": True, "enabled": payload.enabled, "affected": affected}
 
@@ -1373,11 +1458,8 @@ async def parent_join(payload: JoinRequest, caller: Caller = Depends(get_caller)
 async def send_documents(excursion_id: int, caller: Caller = Depends(get_caller),
                          session: Session = Depends(get_session)) -> SendDocumentsOut:
     """Приказ, список, реестр согласий и инструктаж — файлами в чат MAX учителя."""
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
-    if not caller.user_id:
-        raise HTTPException(status_code=401, detail="Откройте ClassGo в MAX")
+    require_user(caller)
+    exc = _teacher_excursion(session, excursion_id, caller, edit=False)
     if not settings.bot_enabled:
         return SendDocumentsOut(delivered=False, message="Отправка в чат сейчас не работает. Скачайте PDF или DOCX.")
     delivered = await BotService().send_documents(session, exc, caller.user_id)
@@ -1389,10 +1471,9 @@ async def send_documents(excursion_id: int, caller: Caller = Depends(get_caller)
 
 
 @app.post("/api/v1/excursions/{excursion_id}/invite-parents", tags=["consent"])
-async def invite_parents(excursion_id: int, session: Session = Depends(get_session)) -> dict:
-    exc = session.get(Excursion, excursion_id)
-    if not exc:
-        raise HTTPException(status_code=404, detail="Выезд не найден")
+async def invite_parents(excursion_id: int, caller: Caller = Depends(get_caller),
+                         session: Session = Depends(get_session)) -> dict:
+    _teacher_excursion(session, excursion_id, caller)
     sent = await BotService().invite_parents(excursion_id) if settings.bot_enabled else 0
     return {"ok": True, "sent": sent}
 
@@ -1412,7 +1493,10 @@ def validate_init_data(payload: dict) -> dict:
 
 
 @app.post("/api/v1/admin/reset-demo", tags=["service"])
-def reset_demo(session: Session = Depends(get_session)) -> dict:
+def reset_demo(request: Request, session: Session = Depends(get_session)) -> dict:
+    token = request.headers.get("X-Admin-Token", "")
+    if strict_auth() and not (settings.ADMIN_TOKEN and hmac.compare_digest(token, settings.ADMIN_TOKEN)):
+        raise HTTPException(status_code=404, detail="Not Found")
     exc = session.exec(select(Excursion)).first()
     if not exc:
         raise HTTPException(status_code=404, detail="Демо-выезд не создан")
@@ -1433,6 +1517,14 @@ def reset_demo(session: Session = Depends(get_session)) -> dict:
 
 @app.post("/webhook/max", tags=["max"])
 async def max_webhook(request: Request) -> JSONResponse:
+    # Вебхук слушаем только в режиме webhook и только с секретом подписки MAX.
+    if strict_auth() and settings.MAX_BOT_MODE != "webhook":
+        raise HTTPException(status_code=404, detail="Not Found")
+    secret = request.headers.get("X-Max-Bot-Api-Secret", "")
+    if settings.MAX_WEBHOOK_SECRET and not hmac.compare_digest(secret, settings.MAX_WEBHOOK_SECRET):
+        raise HTTPException(status_code=401, detail="Bad secret")
+    if strict_auth() and not settings.MAX_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook secret is not configured")
     try:
         payload = await request.json()
     except Exception:  # noqa: BLE001

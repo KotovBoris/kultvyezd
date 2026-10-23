@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .models import (
@@ -108,7 +109,7 @@ def invitation_targets(session: Session, excursion: Excursion) -> list[tuple[Stu
     students = session.exec(select(Student).where(Student.class_id == excursion.class_id)).all()
     for student in students:
         for parent in student_parents(session, student.id):
-            if parent.max_user_id and parent.notifications_enabled and not parent.is_virtual:
+            if parent.max_user_id and parent.confirmed and not parent.is_virtual:
                 targets.append((student, parent))
     return targets
 
@@ -132,31 +133,44 @@ def apply_consent(
     if excursion.cancelled:
         return participant, False, "Выезд отменён — отвечать не нужно."
 
-    if participant.consent_status != ConsentStatus.PENDING:
+    def already() -> tuple[ExcursionParticipant, bool, str]:
         existing_by = participant.signed_by_name or "законный представитель"
         when = msk_stamp(participant.signed_at) or "ранее"
         if participant.consent_status == ConsentStatus.APPROVED:
-            msg = f"Согласие уже подписано ({existing_by}, {when})."
-        else:
-            msg = f"Отказ уже записан ({existing_by}, {when})."
-        return participant, False, msg
+            return participant, False, f"Согласие уже подписано ({existing_by}, {when})."
+        return participant, False, f"Отказ уже записан ({existing_by}, {when})."
 
-    if status == "APPROVED":
-        participant.consent_status = ConsentStatus.APPROVED
-        participant.ticket_status = _ticket_status_for_approve(excursion, participant.ticket_status)
-        msg = "Согласие подписано."
-    else:
-        participant.consent_status = ConsentStatus.REJECTED
-        participant.rejection_reason = reason or "Без указания причины"
-        msg = "Отказ записан."
+    if participant.consent_status != ConsentStatus.PENDING:
+        return already()
 
-    participant.signed_by_phone = parent_phone or None
-    participant.signed_by_name = parent_name or None
-    participant.signed_by_max_user_id = max_user_id
-    participant.signed_source = source
-    participant.signed_at = datetime.utcnow()
+    if trip_started(excursion):
+        return participant, False, "Выезд уже начался — ответ не принимается. Позвоните классному руководителю."
 
-    session.add(participant)
+    approved = status == "APPROVED"
+    values = {
+        "consent_status": ConsentStatus.APPROVED if approved else ConsentStatus.REJECTED,
+        "ticket_status": _ticket_status_for_approve(excursion, participant.ticket_status) if approved
+        else participant.ticket_status,
+        "rejection_reason": None if approved else (reason or "Без указания причины"),
+        "signed_by_phone": parent_phone or None,
+        "signed_by_name": parent_name or None,
+        "signed_by_max_user_id": max_user_id,
+        "signed_source": source,
+        "signed_at": datetime.utcnow(),
+    }
+    # Условная запись: если второй родитель успел ответить раньше, этот ответ не перезапишет его.
+    result = session.execute(
+        update(ExcursionParticipant)
+        .where(ExcursionParticipant.id == participant.id,
+               ExcursionParticipant.consent_status == ConsentStatus.PENDING)
+        .values(**values)
+    )
+    if result.rowcount == 0:
+        session.rollback()
+        session.refresh(participant)
+        return already()
+    msg = "Согласие подписано." if approved else "Отказ записан."
+
     session.add(
         ConsentAudit(
             excursion_id=excursion.id,
@@ -169,6 +183,7 @@ def apply_consent(
         )
     )
     session.commit()
+    session.expire(participant)
     session.refresh(participant)
     return participant, True, msg
 
@@ -186,16 +201,18 @@ def trip_started(excursion: Excursion, now: datetime | None = None) -> bool:
 
 def can_change_answer(session: Session, participant: ExcursionParticipant, excursion: Excursion,
                       user_id: int | None, *, as_teacher: bool = False, now: datetime | None = None) -> bool:
-    """Ответ меняет учитель (бумажные отметки) или родитель этого ребёнка — до начала выезда."""
+    """Изменить ответ может только тот, кто его дал, и только до начала выезда.
+
+    Учитель снимает лишь свои бумажные отметки; электронную подпись родителя он не отменяет.
+    Второй родитель чужой ответ не отменяет — ему приходит сообщение, кто и как ответил.
+    """
     if participant.consent_status == ConsentStatus.PENDING or excursion.cancelled:
         return False
-    if as_teacher:
-        return True
-    if trip_started(excursion, now) or not user_id:
+    if trip_started(excursion, now):
         return False
-    if participant.signed_by_max_user_id == user_id:
-        return True
-    return any(p.max_user_id == user_id for p in student_parents(session, participant.student_id))
+    if as_teacher:
+        return participant.signed_source == "paper"
+    return bool(user_id) and participant.signed_by_max_user_id == user_id
 
 
 def pushkin_for(student: Student | None, excursion: Excursion) -> bool | None:
@@ -222,6 +239,7 @@ def reset_consent(
         raise ValueError("Ученик не найден в этом выезде")
     if not can_change_answer(session, participant, excursion, user_id, as_teacher=as_teacher):
         return participant, False, "Ответ уже нельзя изменить — позвоните классному руководителю."
+    reset_by = "классный руководитель (бумажный бланк)" if as_teacher else (participant.signed_by_name or "")
     participant.consent_status = ConsentStatus.PENDING
     if participant.ticket_status != TicketStatus.PAID:
         participant.ticket_status = (
@@ -234,7 +252,8 @@ def reset_consent(
     participant.signed_by_max_user_id = None
     participant.signed_source = None
     session.add(participant)
-    session.add(ConsentAudit(excursion_id=excursion.id, student_id=student_id, action="RESET", source=source))
+    session.add(ConsentAudit(excursion_id=excursion.id, student_id=student_id, action="RESET", source=source,
+                             parent_name=reset_by))
     excursion.teacher_notified_complete = False
     session.add(excursion)
     session.commit()
@@ -423,10 +442,9 @@ def other_bound_parents(session: Session, student_id: int, exclude_user_id: int 
         select(ParentContact).where(
             ParentContact.student_id == student_id,
             ParentContact.max_user_id != None,  # noqa: E711
-            ParentContact.notifications_enabled == True,  # noqa: E712
         )
     ).all()
-    return [p for p in parents if p.max_user_id != exclude_user_id]
+    return [p for p in parents if p.max_user_id != exclude_user_id and p.confirmed and not p.is_virtual]
 
 
 def set_notifications(session: Session, max_user_id: int, enabled: bool) -> int:

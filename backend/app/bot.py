@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlmodel import Session, select
 
 from . import services
-from .auth import upsert_profile_from_bot
+from .auth import strict_auth, upsert_profile_from_bot
 from .config import get_settings
 from .db import engine
 from .max_client import (
@@ -17,7 +17,9 @@ from .max_client import (
     open_app_button,
 )
 from .models import (
+    AccessRole,
     BotLinkCode,
+    ClassAccess,
     ConsentStatus,
     Excursion,
     ExcursionParticipant,
@@ -371,13 +373,31 @@ class BotService:
             return
 
         if payload.startswith("docs:"):
-            exc_id = int(payload.split(":", 1)[1])
-            await self.client.answer_callback(callback_id, notification="Готовлю документы…")
+            try:
+                exc_id = int(payload.split(":", 1)[1])
+            except ValueError:
+                await self.client.answer_callback(callback_id, notification="Кнопка не сработала. Попробуйте ещё раз.")
+                return
             with Session(engine) as session:
                 excursion = session.get(Excursion, exc_id)
-                if excursion:
-                    await self.send_documents(session, excursion, user_id)
+                if not (excursion and self._is_class_teacher(session, excursion.class_id, user_id)):
+                    await self.client.answer_callback(callback_id, notification="Документы получает только учитель класса.")
+                    return
+                await self.client.answer_callback(callback_id, notification="Готовлю документы…")
+                await self.send_documents(session, excursion, user_id)
             return
+
+        # Кнопки по конкретному ребёнку нажимает только подтверждённый родитель этого ребёнка.
+        if payload.startswith(("ticket:", "reason:", "change:", "back:", "paper:", "consent:", "terms:")):
+            try:
+                parts = payload.split(":")
+                student_scope = int(parts[3] if payload.startswith("terms:") else parts[2])
+            except (ValueError, IndexError):
+                await self.client.answer_callback(callback_id, notification="Кнопка не сработала. Попробуйте ещё раз.")
+                return
+            if not self._is_linked_parent(user_id, student_scope):
+                await self.client.answer_callback(callback_id, notification="Эта кнопка — для родителя ученика.")
+                return
 
         if payload.startswith("ticket:"):
             _, exc_id_s, student_id_s = payload.split(":", 2)
@@ -492,6 +512,29 @@ class BotService:
             )
             return
         await self._apply_bot_consent(callback_id, user_id, exc_id_i, student_id_i, decision, None)
+
+    @staticmethod
+    def _is_linked_parent(user_id: int | None, student_id: int) -> bool:
+        if not user_id:
+            return False
+        with Session(engine) as session:
+            return any(p.max_user_id == user_id and p.confirmed and not p.is_virtual
+                       for p in services.student_parents(session, student_id))
+
+    @staticmethod
+    def _is_class_teacher(session: Session, class_id: int, user_id: int | None) -> bool:
+        klass = session.get(SchoolClass, class_id)
+        if not klass:
+            return False
+        if klass.owner_user_id is None:
+            return not strict_auth()
+        if not user_id:
+            return False
+        if klass.owner_user_id == user_id or klass.teacher_max_id == user_id:
+            return True
+        access = session.exec(select(ClassAccess).where(
+            ClassAccess.class_id == class_id, ClassAccess.user_id == user_id)).first()
+        return bool(access and access.role in (AccessRole.OWNER, AccessRole.EDIT))
 
     @staticmethod
     def _terms_accepted(user_id: int) -> bool:

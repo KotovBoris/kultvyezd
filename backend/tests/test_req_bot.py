@@ -264,6 +264,12 @@ def _fresh_excursion_and_student() -> tuple[int, int]:
         s.refresh(exc)
         s.add(ExcursionParticipant(excursion_id=exc.id, student_id=student.id,
                                    consent_status="PENDING"))
+        # Кнопки в боте нажимает подтверждённый родитель этого ученика.
+        for other in s.exec(select(ParentContact).where(ParentContact.max_user_id == 424242)).all():
+            other.max_user_id = None
+            s.add(other)
+        s.add(ParentContact(student_id=student.id, full_name="Родитель для теста бота", phone_number="+79001110000",
+                            max_user_id=424242, confirmed=True))
         s.commit()
         return exc.id, student.id
 
