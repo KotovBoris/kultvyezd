@@ -97,6 +97,10 @@ cat > "$ROOT/compose.override.yaml" << 'EOF'
 services:
   miniapp:
     ports: !override []
+  # Бэкенд снаружи только через Caddy (HTTPS); прямой порт 8000 — лишь для самого сервера.
+  backend:
+    ports: !override
+      - "127.0.0.1:8000:8000"
   caddy:
     image: caddy:2
     restart: unless-stopped

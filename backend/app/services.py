@@ -477,12 +477,20 @@ def confirm_parent_link(session: Session, student_id: int, max_user_id: int, acc
     return parent
 
 
+PAIR_LINK_TTL = timedelta(hours=24)
+
+
+def pair_link_expired(link, now: datetime | None = None) -> bool:
+    """Ссылка для второго родителя живёт сутки: пересланная позже — уже не сработает."""
+    return (now or datetime.utcnow()) - link.created_at > PAIR_LINK_TTL
+
+
 def accept_pair_code(session: Session, code: str, user_id: int, name: str = "") -> Student | None:
     """Второй родитель открыл ссылку: добавляем ему контакт ребёнка (или подтверждаем существующий)."""
     from .models import BotLinkCode  # локальный импорт: модель нужна только здесь
 
     link = session.exec(select(BotLinkCode).where(BotLinkCode.code == code, BotLinkCode.new_parent == True)).first()  # noqa: E712
-    if not link or link.used:
+    if not link or link.used or pair_link_expired(link):
         return None
     student = session.get(Student, link.student_id)
     if not student:

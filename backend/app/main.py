@@ -1359,7 +1359,7 @@ def second_parent_invite(payload: SecondParentInviteRequest, caller: Caller = De
 @app.get("/api/v1/parent/pair/{code}", response_model=PairInfoOut, tags=["parent"])
 def pair_info(code: str, session: Session = Depends(get_session)) -> PairInfoOut:
     link = session.exec(select(BotLinkCode).where(BotLinkCode.code == code, BotLinkCode.new_parent == True)).first()  # noqa: E712
-    if not link or link.used:
+    if not link or link.used or services.pair_link_expired(link):
         raise HTTPException(status_code=404, detail="Ссылка уже использована или устарела")
     student = session.get(Student, link.student_id)
     klass = session.get(SchoolClass, student.class_id) if student else None
