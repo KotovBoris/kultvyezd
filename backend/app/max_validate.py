@@ -61,6 +61,19 @@ def validate_webapp_data(app_data: str, bot_token: str) -> tuple[bool, dict[str,
     return valid, fields
 
 
+def verify_phone(auth_date: str | int, phone: str, user_id: int, phone_hash: str, bot_token: str) -> bool:
+    """Проверка номера из WebApp.requestContact() (dev.max.ru, «Подключение мини-приложения»).
+
+    hash = HMAC_SHA256(key=токен бота, msg="authDate=…\\nphone=…\\nuserId=…"), номер без «+».
+    user_id берётся из уже проверенного initData — так номер нельзя подставить чужой.
+    """
+    if not (phone_hash and bot_token and phone and user_id):
+        return False
+    msg = "\n".join([f"authDate={auth_date}", f"phone={str(phone).lstrip('+')}", f"userId={user_id}"])
+    calc = hmac.new(bot_token.encode(), msg.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(calc, str(phone_hash))
+
+
 def is_fresh(auth_date: int | None, max_age: int = DEFAULT_MAX_AGE) -> bool:
     if not auth_date:
         return False

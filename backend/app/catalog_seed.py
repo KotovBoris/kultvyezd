@@ -267,18 +267,18 @@ def seed_demo_class(session: Session) -> int:
     existing = session.exec(select(SchoolClass)).first()
     if existing:
         return existing.id
-    gym7 = _get_or_create_school(session, "МБОУ «Гимназия №7» г. Казань", "7")
-    school33 = _get_or_create_school(session, "МБОУ «СОШ №33» г. Казань", "33")
+    gym7 = _get_or_create_school(session, "Гимназия «Демо» г. Казань (демо-данные)", "7")
+    school33 = _get_or_create_school(session, "Школа №33 «Демо» г. Казань (демо-данные)", "33")
     class_8b = _create_class(
-        session, "8", "Б", gym7, "7", "МБОУ «Гимназия №7» г. Казань",
+        session, "8", "Б", gym7, "7", "Гимназия «Демо» г. Казань (демо-данные)",
         "Салимова Гульнара Рифкатовна", "+79001230000", -100200300, _DEMO_STUDENTS,
     )
     _create_class(
-        session, "5", "А", gym7, "7", "МБОУ «Гимназия №7» г. Казань",
+        session, "5", "А", gym7, "7", "Гимназия «Демо» г. Казань (демо-данные)",
         "Иванова Елена Петровна", "+79001230001", None, _DEMO_STUDENTS_5A,
     )
     _create_class(
-        session, "7", "В", school33, "33", "МБОУ «СОШ №33» г. Казань",
+        session, "7", "В", school33, "33", "Школа №33 «Демо» г. Казань (демо-данные)",
         "Хабибуллин Марат Айратович", "+79001230002", None, _DEMO_STUDENTS_7V,
     )
     return class_8b
@@ -345,7 +345,7 @@ def seed_demo_excursion(session: Session) -> int:
             signed_by_name=parent.full_name if status_consent != "PENDING" else None,
             signed_by_phone=parent.phone_number if status_consent != "PENDING" else None,
             signed_at=datetime.now() if status_consent != "PENDING" else None,
-            rejection_reason="Болезнь" if status_consent == "REJECTED" else None,
+            rejection_reason="Личные причины" if status_consent == "REJECTED" else None,
         )
         session.add(part)
     session.commit()
@@ -385,6 +385,26 @@ def seed_demo_excursion(session: Session) -> int:
             ))
         session.commit()
     return excursion.id
+
+
+def refresh_catalog_dates(session: Session, min_days_ahead: int = 3) -> int:
+    """Сдвигает прошедшие события каталога вперёд, чтобы демо не устаревало.
+
+    Каталог — модельный снапшот: даты генерируются относительно дня первого запуска.
+    Чтобы через неделю в каталоге не оказались одни прошедшие события, переносим их
+    на ближайшие недели, сохраняя порядок.
+    """
+    horizon = date.today() + timedelta(days=min_days_ahead)
+    moved = 0
+    for event in session.exec(select(CultureEvent)).all():
+        if event.event_date and event.event_date < horizon:
+            while event.event_date < horizon:
+                event.event_date += timedelta(days=14)
+            session.add(event)
+            moved += 1
+    if moved:
+        session.commit()
+    return moved
 
 
 def seed_all(session: Session) -> dict[str, int]:

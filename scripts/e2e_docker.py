@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """E2E-проверка ПОДНЯТОГО docker-стека (как это делал бы проверяющий эксперт).
 
-Бьёт по публичному адресу (по умолчанию http://localhost:8080 — mini-app + nginx-прокси)
-и проходит основной пользовательский сценарий целиком. Только стандартная библиотека.
+Бьёт по публичному адресу (по умолчанию http://localhost:8080 — mini-app + nginx-прокси).
+Если на стенде включён бот (боевой режим авторизации), проверяет, что данные закрыты
+для анонимов и подделок; иначе проходит основной сценарий без авторизации.
+Только стандартная библиотека.
 
 Запуск:  docker compose up -d --build && python3 scripts/e2e_docker.py [BASE_URL]
 """
@@ -28,9 +30,11 @@ def check(cond: bool, label: str, extra: str = "") -> None:
         print(f"  ❌ {label} {extra}")
 
 
-def call(method: str, path: str, body: dict | None = None, raw: bool = False):
+def call(method: str, path: str, body: dict | None = None, raw: bool = False, headers: dict | None = None):
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(f"{BASE}{path}", data=data, method=method)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     if data:
         req.add_header("Content-Type", "application/json")
     try:
@@ -50,6 +54,37 @@ def call(method: str, path: str, body: dict | None = None, raw: bool = False):
             return e.code, json.loads(content or b"{}")
         except json.JSONDecodeError:
             return e.code, content
+
+
+def strict_checks() -> int:
+    """Боевой режим: без подписи MAX — никаких данных, подделки отклоняются."""
+    s, classes = call("GET", "/api/v1/classes")
+    check(s == 200 and classes == [], "Аноним не видит классы и телефоны родителей")
+    s, trips = call("GET", "/api/v1/excursions")
+    check(s == 200 and trips == [], "Аноним не видит выезды")
+    s, _ = call("GET", "/api/v1/classes?user_id=1")
+    check(_ == [], "Подставленный ?user_id не даёт доступа")
+    for trip in (1, 2):
+        s, _ = call("GET", f"/api/v1/excursions/{trip}/dashboard")
+        check(s in (403, 404), f"Дашборд выезда {trip} закрыт ({s})")
+        s, _ = call("GET", f"/api/v1/excursions/{trip}/export-order?fmt=pdf", raw=True)
+        check(s in (403, 404), f"Документы выезда {trip} без подписанной ссылки закрыты ({s})")
+    s, _ = call("GET", "/api/v1/parents/search?query=%D0%98%D0%B2")
+    check(s == 403, f"Поиск по родителям закрыт ({s})")
+    s, _ = call("POST", "/api/v1/parent/claim", {"parent_id": 1, "max_user_id": 1})
+    check(s == 410, f"Устаревшая привязка «выбрать себя» отключена ({s})")
+    s, _ = call("POST", "/api/v1/excursions", {"class_id": 1, "title": "x"})
+    check(s in (401, 403, 404), f"Аноним не создаст выезд ({s})")
+    s, _ = call("POST", "/api/v1/excursions/1/consent", {"student_id": 1, "status": "APPROVED", "max_user_id": 1})
+    check(s in (401, 404), f"Аноним не подпишет согласие ({s})")
+    s, me = call("GET", "/api/v1/me", headers={"X-Max-Init-Data": "user=%7B%22id%22%3A1%7D&auth_date=1&hash=00"})
+    check(s == 401, f"Поддельный initData отклонён ({s})")
+    s, _ = call("POST", "/webhook/max", {"update_type": "bot_started"})
+    check(s == 404, f"Вебхук закрыт в режиме polling ({s})")
+    s, _ = call("POST", "/api/v1/admin/reset-demo")
+    check(s == 404, f"Служебный сброс без токена закрыт ({s})")
+    print(f"\n── Итог проверки стека: успешно {passed}, провалено {failed} ──")
+    return 0 if failed == 0 else 1
 
 
 def main() -> int:
@@ -73,6 +108,9 @@ def main() -> int:
     s, events = call("GET", "/api/v1/culture-events?pushkin=true")
     check(s == 200 and len(events) >= 5, f"Каталог: события по «Пушкинской карте» ({len(events)})")
 
+    if h.get("bot_enabled"):
+        return strict_checks()
+
     s, classes = call("GET", "/api/v1/classes")
     # Компактный сид (550fa36): в демо-классе 8 учеников.
     check(s == 200 and classes and len(classes[0]["students"]) >= 8,
@@ -90,14 +128,17 @@ def main() -> int:
     s, dash = call("GET", f"/api/v1/excursions/{exc_id}/dashboard")
     check(s == 200 and "summary" in dash, "Дашборд «Светофор» отдаётся")
 
-    s, consent = call("POST", f"/api/v1/excursions/{exc_id}/consent", {
-        "student_id": student_id, "status": "APPROVED",
-        "parent_name": "Мама", "parent_phone": "+79001234501",
+    # Без MAX-пользователя согласие не принимается (на стенде с ботом — 401), поэтому
+    # отмечаем бумажный бланк от имени учителя: у сид-класса нет владельца.
+    teacher = "?user_id=1"
+    s, consent = call("POST", f"/api/v1/excursions/{exc_id}/consent{teacher}", {
+        "student_id": student_id, "status": "APPROVED", "source": "paper",
+        "parent_name": "Мама (бумажный бланк)", "parent_phone": "+79001234501",
     })
-    check(s == 200 and consent["consent_status"] == "APPROVED", "Согласие родителя зафиксировано")
+    check(s == 200 and consent["consent_status"] == "APPROVED", "Согласие по бумажному бланку зафиксировано")
 
-    s, repeat = call("POST", f"/api/v1/excursions/{exc_id}/consent", {
-        "student_id": student_id, "status": "REJECTED",
+    s, repeat = call("POST", f"/api/v1/excursions/{exc_id}/consent{teacher}", {
+        "student_id": student_id, "status": "REJECTED", "source": "paper",
     })
     check(repeat.get("changed") is False and repeat["consent_status"] == "APPROVED",
           "Идемпотентность — повтор не перезаписывает согласие")

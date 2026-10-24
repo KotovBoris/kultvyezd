@@ -1,225 +1,221 @@
-import { useEffect, useState } from "react";
-import { api, type SchoolClass, type Excursion } from "./api";
-import { deviceName, effectiveUserId, maxVersion, platform, startParam, isInsideMax } from "./max";
-import { setSession, useSession } from "./store";
-import ExcursionsScreen from "./screens/ExcursionsScreen";
-import DashboardScreen from "./screens/DashboardScreen";
-import ParentScreen from "./screens/ParentScreen";
-import ClassesScreen from "./screens/ClassesScreen";
-import WizardScreen from "./screens/WizardScreen";
+import { useCallback, useEffect, useState } from "react";
+import { api, type Me } from "./api";
+import { isInsideMax, ready, setBackButton, startParam } from "./max";
+import { back, errorText, getState, resetTo, setState, toast, useAppState, type Role, type Route } from "./store";
+import { Icon, Loader, Notice, Segmented, Toaster } from "./ui";
+import Welcome from "./screens/Welcome";
+import TeacherHome from "./screens/TeacherHome";
+import TripScreen from "./screens/TripScreen";
+import NewTrip from "./screens/NewTrip";
+import ClassScreen from "./screens/ClassScreen";
+import NewClass from "./screens/NewClass";
+import ParentHome from "./screens/ParentHome";
+import ParentTrip from "./screens/ParentTrip";
+import JoinScreen from "./screens/JoinScreen";
+import PairScreen from "./screens/PairScreen";
 
-type Tab = "trips" | "classes";
+function pickRole(me: Me): Role | null {
+  if (me.role === "teacher" && me.is_teacher) return "teacher";
+  if (me.role === "parent" && (me.is_parent || !me.is_teacher)) return "parent";
+  if (me.is_teacher) return "teacher";
+  if (me.is_parent) return "parent";
+  return me.role;
+}
+
+/** Обновить профиль (после демо, привязки, создания класса). */
+export async function refreshMe(nextRole?: Role): Promise<Me> {
+  const me = await api.me();
+  setState({ me, role: nextRole ?? getState().role ?? pickRole(me) });
+  return me;
+}
+
+export async function chooseRole(role: Role): Promise<void> {
+  setState({ role });
+  resetTo({ name: "home" });
+  try {
+    const me = await api.setRole(role);
+    setState({ me });
+  } catch {
+    /* роль сохранится при следующем входе */
+  }
+}
+
+export async function startDemo(): Promise<void> {
+  const info = await api.demoStart();
+  await refreshMe("teacher");
+  try {
+    await api.setRole("teacher");
+  } catch {
+    /* не критично */
+  }
+  resetTo({ name: "home" });
+  if (info.created) {
+    toast(
+      info.invited
+        ? "Демо-класс готов. Приглашение на выезд уже пришло вам в чат с ботом."
+        : "Демо-класс 7Б готов: вы в нём учитель и родитель ученика.",
+    );
+  }
+}
+
+async function routeFromStartParam(me: Me): Promise<{ role: Role | null; stack: Route[] } | null> {
+  const param = startParam();
+  if (!param) return null;
+  if (param === "demo") {
+    await startDemo();
+    return { role: "teacher", stack: [{ name: "home" }] };
+  }
+  if (param.startsWith("pair_")) {
+    return { role: "parent", stack: [{ name: "home" }, { name: "pair", code: param.slice(5) }] };
+  }
+  if (param.startsWith("join_")) {
+    return { role: "parent", stack: [{ name: "home" }, { name: "join", code: param.slice(5) }] };
+  }
+  if (param.startsWith("trip_")) {
+    const tripId = Number(param.slice(5));
+    if (!tripId) return null;
+    if (me.user_id && me.is_parent) {
+      const ctx = await api.parentContext(me.user_id).catch(() => null);
+      const child = ctx?.children.find((c) => c.excursions.some((e) => e.excursion_id === tripId));
+      if (child) {
+        return {
+          role: "parent",
+          stack: [{ name: "home" }, { name: "parent-trip", excursionId: tripId, studentId: child.student_id }],
+        };
+      }
+    }
+    if (me.is_teacher) return { role: "teacher", stack: [{ name: "home" }, { name: "trip", id: tripId }] };
+  }
+  return null;
+}
 
 export default function App() {
-  const session = useSession();
-  const [tab, setTab] = useState<Tab>("trips");
-  const [wizard, setWizard] = useState(false);
-  const [excursions, setExcursions] = useState<Excursion[]>([]);
-  const [classes, setClasses] = useState<SchoolClass[]>([]);
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const state = useAppState();
+  const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState<string | null>(null);
 
-  async function reload() {
-    setLoading(true);
+  const boot = useCallback(async () => {
+    setBootError(null);
+    setBooting(true);
+    // Сразу говорим MAX, что приложение готово: он убирает свой экран загрузки,
+    // и пользователь видит наш индикатор вместо пустого окна.
+    ready();
     try {
-      const [exc, cls] = await Promise.all([api.excursions(), api.classes(session.userId)]);
-      setExcursions(exc);
-      setClasses(cls);
-      setActiveId((prev) => prev ?? exc[0]?.id ?? null);
-      setError(null);
-    } catch (e: any) {
-      setError(`Не удалось загрузить данные: ${e.message}`);
+      const me = await api.me();
+      setState({ me, role: pickRole(me) });
+      const routed = await routeFromStartParam(me);
+      if (routed) setState({ role: routed.role ?? getState().role, stack: routed.stack });
+    } catch (e) {
+      setBootError(errorText(e));
     } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    setSession({ userId: effectiveUserId() });
-    const param = startParam();
-    if (param && /^\d+$/.test(param)) {
-      setSession({ role: "parent", studentId: Number(param) });
+      setBooting(false);
     }
   }, []);
 
   useEffect(() => {
-    if (session.role === "teacher") reload();
-  }, [session.role, session.userId]);
+    void boot();
+  }, [boot]);
 
-  if (session.role === "parent") {
+  const depth = state.stack.length;
+  useEffect(() => {
+    setBackButton(depth > 1 ? back : null);
+  }, [depth]);
+
+  if (booting) {
     return (
-      <div className="kv-app">
-        <Header />
-        <ParentScreen userId={session.userId} />
-        <RoleSwitch />
-        <Footer />
+      <div className="cg-app">
+        <Loader label="Открываем ClassGo…" />
+      </div>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <div className="cg-app">
+        <div className="cg-page">
+          <Notice
+            tone="error"
+            icon="info"
+            title="Не получилось открыть ClassGo"
+            action={
+              <button type="button" className="cg-link" onClick={() => void boot()}>
+                Попробовать ещё раз
+              </button>
+            }
+          >
+            {bootError}
+          </Notice>
+        </div>
+      </div>
+    );
+  }
+
+  const route = state.stack[depth - 1];
+  const me = state.me;
+  const bothRoles = Boolean(me && me.is_teacher && me.is_parent);
+
+  // На боевом стенде без подписи MAX сервер не знает, кто вы: работаем только внутри MAX.
+  if (me && !me.user_id && !isInsideMax()) {
+    return (
+      <div className="cg-app">
+        <div className="cg-page">
+          <Notice tone="info" icon="info" title="Откройте ClassGo в MAX">
+            ClassGo работает внутри мессенджера MAX: там мы знаем, что это вы, и никто не ответит за вашего ребёнка.
+          </Notice>
+          <a className="cg-callbtn cg-mt" href={`https://max.ru/${me.bot_username}`}>
+            Открыть в MAX
+          </a>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="kv-app">
-      <Header />
-      {error && (
-        <div className="kv-alert err">
-          {error}
-          <button className="kv-btn ghost" style={{ marginLeft: 8 }} onClick={reload}>
-            Повторить
-          </button>
+    <div className="cg-app">
+      {depth > 1 && !isInsideMax() && (
+        <button type="button" className="cg-webback" onClick={back}>
+          <Icon name="chevron" size={18} className="flip" />
+          Назад
+        </button>
+      )}
+      {bothRoles && depth === 1 && state.role && (
+        <div className="cg-rolebar">
+          <Segmented
+            label="Роль"
+            value={state.role}
+            onChange={(r) => void chooseRole(r)}
+            options={[
+              { value: "teacher", label: "Я учитель" },
+              { value: "parent", label: "Я родитель" },
+            ]}
+          />
         </div>
       )}
-      <div className="kv-tabs">
-        <button className={`kv-tab ${tab === "trips" ? "active" : ""}`} onClick={() => { setTab("trips"); setWizard(false); }}>
-          Мероприятия
-        </button>
-        <button className={`kv-tab ${tab === "classes" ? "active" : ""}`} onClick={() => { setTab("classes"); setWizard(false); }}>
-          Классы
-        </button>
-      </div>
-
-      {loading && <SkeletonLoader />}
-
-      {!loading && tab === "trips" && !wizard && (
-        <>
-          <div className="kv-card">
-            <div className="kv-row">
-              <h3>Мероприятия</h3>
-              <button className="kv-btn primary" onClick={() => setWizard(true)}>
-                Создать мероприятие
-              </button>
-            </div>
-          </div>
-          <ExcursionsScreen excursions={excursions} activeId={activeId} onSelect={setActiveId} />
-          {activeId && <DashboardScreen excursionId={activeId} onChange={reload} />}
-        </>
-      )}
-
-      {!loading && tab === "trips" && wizard && (
-        <WizardScreen
-          classes={classes}
-          onCancel={() => setWizard(false)}
-          onCreated={async (id) => {
-            setWizard(false);
-            await reload();
-            setActiveId(id);
-          }}
-        />
-      )}
-
-      {!loading && tab === "classes" && (
-        <ClassesScreen classes={classes} userId={session.userId} onChange={reload} />
-      )}
-
-      {!isInsideMax() && <DemoPanel onChange={reload} />}
-
-      <RoleSwitch />
-      <Footer />
+      <Screen route={route} role={state.role} />
+      <Toaster />
     </div>
   );
 }
 
-function RoleSwitch() {
-  const session = useSession();
-  return (
-    <div className="kv-card">
-      <div className="kv-row">
-        <span className="kv-muted">
-          Режим: <b>{session.role === "parent" ? "родитель" : "учитель"}</b>
-        </span>
-        <button
-          className="kv-btn ghost"
-          onClick={() => setSession({ role: session.role === "parent" ? "teacher" : "parent" })}
-        >
-          {session.role === "parent" ? "Я учитель" : "Я родитель"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DemoPanel({ onChange }: { onChange: () => void }) {
-  const session = useSession();
-  const [open, setOpen] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  async function resetDemo() {
-    try {
-      const r = await api.resetDemo();
-      setMsg(`Демо сброшено: ${r.reset_participants} участников переведены в «ожидает».`);
-      onChange();
-    } catch (e: any) {
-      setMsg(`Ошибка сброса: ${e.message}`);
-    }
+function Screen({ route, role }: { route: Route; role: Role | null }) {
+  switch (route.name) {
+    case "trip":
+      return <TripScreen id={route.id} />;
+    case "new-trip":
+      return <NewTrip classId={route.classId} />;
+    case "class":
+      return <ClassScreen id={route.id} />;
+    case "new-class":
+      return <NewClass />;
+    case "parent-trip":
+      return <ParentTrip excursionId={route.excursionId} studentId={route.studentId} />;
+    case "join":
+      return <JoinScreen code={route.code} />;
+    case "pair":
+      return <PairScreen code={route.code} />;
+    default:
+      if (role === "teacher") return <TeacherHome />;
+      if (role === "parent") return <ParentHome />;
+      return <Welcome />;
   }
-
-  return (
-    <div className="kv-card kv-viewpanel">
-      <div className="kv-row">
-        <b>Режим просмотра (вне MAX)</b>
-        <button className="kv-btn ghost" onClick={() => setOpen((v) => !v)}>
-          {open ? "Свернуть" : "Развернуть"}
-        </button>
-      </div>
-      {open && (
-        <>
-          <p className="kv-muted">
-            Текущий пользователь: <b>{session.userId ?? "—"}</b>. Внутри MAX берётся настоящий
-            id, в браузере — параметр адресной строки ?user_id=&lt;id&gt; либо случайный
-            демо-идентификатор, сохранённый в этом браузере. Кнопка ниже возвращает статусы
-            демо-выезда в «ожидает».
-          </p>
-          <div className="kv-actions">
-            <button className="kv-btn" onClick={resetDemo}>
-              Сбросить демо-данные
-            </button>
-          </div>
-          {msg && <div className="kv-alert info">{msg}</div>}
-        </>
-      )}
-    </div>
-  );
-}
-
-function SkeletonLoader() {
-  return (
-    <>
-      <div className="kv-card kv-skeleton">
-        <div className="kv-skel-line w60" />
-        <div className="kv-skel-line w90" />
-        <div className="kv-skel-line w80" />
-        <div className="kv-skel-bar" />
-      </div>
-      <div className="kv-card kv-skeleton">
-        <div className="kv-skel-line w40" />
-        <div className="kv-skel-line w90" />
-      </div>
-    </>
-  );
-}
-
-function Header() {
-  return (
-    <div className="kv-header">
-      <div className="kv-logo">КВ</div>
-      <div>
-        <p className="kv-title">ClassGo</p>
-        <p className="kv-subtitle">Организация школьных культурных выездов в MAX</p>
-      </div>
-    </div>
-  );
-}
-
-function Footer() {
-  const inside = isInsideMax();
-  return (
-    <div className="kv-footer-note">
-      Платформа: <b>{platform()}</b> · устройство: <b>{deviceName()}</b> · MAX: <b>{maxVersion()}</b>
-      {!inside && <> · запущено вне MAX (веб-проверка)</>}
-      {startParam() && <> · контекст: <b>{startParam()}</b></>}
-      <br />
-      Данные каталога — модельные (снапшот PRO.Культура.РФ / «Пушкинская карта», г. Казань).
-      Оплата билетов происходит напрямую на сайте учреждения культуры.
-    </div>
-  );
 }

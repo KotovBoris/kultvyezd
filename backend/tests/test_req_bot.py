@@ -100,7 +100,7 @@ async def test_BOT_3_help_command() -> None:
 async def test_BOT_4_trips_without_binding() -> None:
     fake = FakeClient()
     await BotService(client=fake).handle_update(_message("/trips"))
-    assert fake.sent and "не привязаны" in fake.sent[-1]["text"].lower()
+    assert fake.sent and "не подключены" in fake.sent[-1]["text"].lower()
 
 
 @pytest.mark.asyncio
@@ -131,6 +131,7 @@ async def test_BOT_6_callback_cmd_trips() -> None:
 async def test_BOT_7_callback_consent_approved() -> None:
     exc_id, sid = _fresh_excursion_and_student()
     fake = FakeClient()
+    BotService._accept_terms(424242)
     await BotService(client=fake).handle_update(_callback(f"consent:{exc_id}:{sid}:APPROVED"))
     with Session(engine) as s:
         p = _participant(s, exc_id, sid)
@@ -141,10 +142,18 @@ async def test_BOT_7_callback_consent_approved() -> None:
 async def test_BOT_8_callback_consent_rejected() -> None:
     exc_id, sid = _fresh_excursion_and_student()
     fake = FakeClient()
+    BotService._accept_terms(424242)
     await BotService(client=fake).handle_update(_callback(f"consent:{exc_id}:{sid}:REJECTED"))
     with Session(engine) as s:
         p = _participant(s, exc_id, sid)
+    # Сначала бот уточняет причину отказа — статус ещё не меняется.
+    assert p.consent_status.value == "PENDING"
+    assert "почему" in fake.answers[-1]["text"].lower()
+    await BotService(client=fake).handle_update(_callback(f"reason:{exc_id}:{sid}:personal"))
+    with Session(engine) as s:
+        p = _participant(s, exc_id, sid)
     assert p.consent_status.value == "REJECTED"
+    assert p.rejection_reason == "Личные причины"
 
 
 @pytest.mark.asyncio
@@ -255,6 +264,12 @@ def _fresh_excursion_and_student() -> tuple[int, int]:
         s.refresh(exc)
         s.add(ExcursionParticipant(excursion_id=exc.id, student_id=student.id,
                                    consent_status="PENDING"))
+        # Кнопки в боте нажимает подтверждённый родитель этого ученика.
+        for other in s.exec(select(ParentContact).where(ParentContact.max_user_id == 424242)).all():
+            other.max_user_id = None
+            s.add(other)
+        s.add(ParentContact(student_id=student.id, full_name="Родитель для теста бота", phone_number="+79001110000",
+                            max_user_id=424242, confirmed=True))
         s.commit()
         return exc.id, student.id
 

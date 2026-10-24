@@ -69,6 +69,8 @@ def make_excursion(client: TestClient, klass: dict, event_id: int | None = None,
     else:
         body["title"] = "Тестовый выезд"
     body.update(extra)
-    r = client.post("/api/v1/excursions", json=body)
+    # Выезд создаёт учитель класса (у старых сид-классов владельца нет — тогда без user_id).
+    owner = klass.get("owner_user_id")
+    r = client.post("/api/v1/excursions", json=body, params={"user_id": owner} if owner else None)
     assert r.status_code == 201, r.text
     return r.json()

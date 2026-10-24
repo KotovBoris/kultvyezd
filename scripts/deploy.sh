@@ -45,7 +45,7 @@ fi
 ROOT="${CLASSGO_ROOT:-$HOME/classgo}"
 ENV_SRC="${CLASSGO_ENV:-$HOME/.env}"
 REPO="https://github.com/KotovBoris/kultvyezd.git"
-BRANCH="main"
+BRANCH="${CLASSGO_BRANCH:-main}"  # ветку можно выкатить: CLASSGO_BRANCH=final-polish ~/run.sh
 HEALTH_HTTP="http://127.0.0.1/healthz"
 HEALTH_HTTPS="${PUBLIC_ORIGIN}/healthz"
 
@@ -97,6 +97,10 @@ cat > "$ROOT/compose.override.yaml" << 'EOF'
 services:
   miniapp:
     ports: !override []
+  # Бэкенд снаружи только через Caddy (HTTPS); прямой порт 8000 — лишь для самого сервера.
+  backend:
+    ports: !override
+      - "127.0.0.1:8000:8000"
   caddy:
     image: caddy:2
     restart: unless-stopped

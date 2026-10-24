@@ -2,9 +2,13 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
+from . import timeutil
+
 from .models import (
+    UserProfile,
     ConsentAudit,
     ConsentStatus,
     Excursion,
@@ -12,6 +16,7 @@ from .models import (
     ExcursionStatus,
     ParentContact,
     ReminderLog,
+    SchoolClass,
     Student,
     TicketStatus,
     TrafficLight,
@@ -63,6 +68,52 @@ def student_parents(session: Session, student_id: int) -> list[ParentContact]:
     return list(session.exec(select(ParentContact).where(ParentContact.student_id == student_id)).all())
 
 
+def local_stamp(value: datetime | None, tz: str | None) -> str:
+    """«24.10 в 18:05» по времени школы."""
+    return timeutil.stamp(value, tz)
+
+
+def normalize_phone(raw: str | None) -> str:
+    """Телефон к виду 7XXXXXXXXXX: так сверяем номер из MAX со списком класса."""
+    digits = "".join(ch for ch in (raw or "") if ch.isdigit())
+    if len(digits) == 11 and digits[0] == "8":
+        digits = "7" + digits[1:]
+    if len(digits) == 10:
+        digits = "7" + digits
+    return digits
+
+
+def excursion_summary(session: Session, excursion: Excursion) -> dict:
+    parts = session.exec(
+        select(ExcursionParticipant).where(ExcursionParticipant.excursion_id == excursion.id)
+    ).all()
+    counts = {"GREEN": 0, "YELLOW": 0, "GREY": 0, "RED": 0}
+    for p in parts:
+        counts[compute_traffic_light(p).value] += 1
+    total = len(parts)
+    answered = total - counts["GREY"]
+    return {
+        "total": total,
+        "answered": answered,
+        "going": counts["GREEN"] + counts["YELLOW"],
+        "not_going": counts["RED"],
+        "waiting": counts["GREY"],
+        "waiting_ticket": counts["YELLOW"],
+        "summary": counts,
+    }
+
+
+def invitation_targets(session: Session, excursion: Excursion) -> list[tuple[Student, ParentContact]]:
+    """Живые родители класса с привязанным MAX: им бот шлёт приглашение на выезд."""
+    targets: list[tuple[Student, ParentContact]] = []
+    students = session.exec(select(Student).where(Student.class_id == excursion.class_id)).all()
+    for student in students:
+        for parent in student_parents(session, student.id):
+            if parent.max_user_id and parent.confirmed and not parent.is_virtual:
+                targets.append((student, parent))
+    return targets
+
+
 def apply_consent(
     session: Session,
     excursion: Excursion,
@@ -73,34 +124,53 @@ def apply_consent(
     parent_name: str = "",
     reason: str | None = None,
     source: str = "api",
+    max_user_id: int | None = None,
 ) -> tuple[ExcursionParticipant, bool, str]:
     participant = get_participant(session, excursion.id, student_id)
     if participant is None:
-        raise ValueError("Участник не найден в этом выезде")
+        raise ValueError("Ученик не найден в этом выезде")
+
+    if excursion.cancelled:
+        return participant, False, "Выезд отменён — отвечать не нужно."
+
+    def already() -> tuple[ExcursionParticipant, bool, str]:
+        existing_by = participant.signed_by_name or "законный представитель"
+        when = local_stamp(participant.signed_at, excursion.timezone) or "ранее"
+        if participant.consent_status == ConsentStatus.APPROVED:
+            return participant, False, f"Согласие уже подписано ({existing_by}, {when})."
+        return participant, False, f"Отказ уже записан ({existing_by}, {when})."
 
     if participant.consent_status != ConsentStatus.PENDING:
-        existing_by = participant.signed_by_name or "законный представитель"
-        when = participant.signed_at.strftime("%d.%m в %H:%M") if participant.signed_at else "ранее"
-        if participant.consent_status == ConsentStatus.APPROVED:
-            msg = f"Согласие уже подписано ({existing_by}, {when}). Статус: Едет."
-        else:
-            msg = f"Уже зафиксирован отказ ({existing_by}, {when})."
-        return participant, False, msg
+        return already()
 
-    if status == "APPROVED":
-        participant.consent_status = ConsentStatus.APPROVED
-        participant.ticket_status = _ticket_status_for_approve(excursion, participant.ticket_status)
-        msg = "Согласие подписано. Билет можно оплатить напрямую в кассе."
-    else:
-        participant.consent_status = ConsentStatus.REJECTED
-        participant.rejection_reason = reason or "Без указания причины"
-        msg = "Отказ зафиксирован."
+    if trip_started(excursion):
+        return participant, False, "Выезд уже начался — ответ не принимается. Позвоните классному руководителю."
 
-    participant.signed_by_phone = parent_phone or None
-    participant.signed_by_name = parent_name or None
-    participant.signed_at = datetime.utcnow()
+    approved = status == "APPROVED"
+    values = {
+        "consent_status": ConsentStatus.APPROVED if approved else ConsentStatus.REJECTED,
+        "ticket_status": _ticket_status_for_approve(excursion, participant.ticket_status) if approved
+        else participant.ticket_status,
+        "rejection_reason": None if approved else (reason or "Без указания причины"),
+        "signed_by_phone": parent_phone or None,
+        "signed_by_name": parent_name or None,
+        "signed_by_max_user_id": max_user_id,
+        "signed_source": source,
+        "signed_at": datetime.utcnow(),
+    }
+    # Условная запись: если второй родитель успел ответить раньше, этот ответ не перезапишет его.
+    result = session.execute(
+        update(ExcursionParticipant)
+        .where(ExcursionParticipant.id == participant.id,
+               ExcursionParticipant.consent_status == ConsentStatus.PENDING)
+        .values(**values)
+    )
+    if result.rowcount == 0:
+        session.rollback()
+        session.refresh(participant)
+        return already()
+    msg = "Согласие подписано." if approved else "Отказ записан."
 
-    session.add(participant)
     session.add(
         ConsentAudit(
             excursion_id=excursion.id,
@@ -113,8 +183,78 @@ def apply_consent(
         )
     )
     session.commit()
+    session.expire(participant)
     session.refresh(participant)
     return participant, True, msg
+
+
+def trip_started(excursion: Excursion, now: datetime | None = None) -> bool:
+    """Выезд начался: наступило время сбора (по Москве). До этого ответ ещё можно поменять —
+    например, если ребёнок заболел утром."""
+    start = timeutil.starts_at_utc(excursion.event_date, excursion.gathering_time, excursion.timezone)
+    return start is not None and (now or datetime.utcnow()) >= start
+
+
+def can_change_answer(session: Session, participant: ExcursionParticipant, excursion: Excursion,
+                      user_id: int | None, *, as_teacher: bool = False, now: datetime | None = None) -> bool:
+    """Изменить ответ может только тот, кто его дал, и только до начала выезда.
+
+    Учитель снимает лишь свои бумажные отметки; электронную подпись родителя он не отменяет.
+    Второй родитель чужой ответ не отменяет — ему приходит сообщение, кто и как ответил.
+    """
+    if participant.consent_status == ConsentStatus.PENDING or excursion.cancelled:
+        return False
+    if trip_started(excursion, now):
+        return False
+    if as_teacher:
+        return participant.signed_source == "paper"
+    return bool(user_id) and participant.signed_by_max_user_id == user_id
+
+
+def pushkin_for(student: Student | None, excursion: Excursion) -> bool | None:
+    """Можно ли этому ребёнку платить «Пушкинской картой» (14–22 года на дату выезда).
+
+    None — дата рождения неизвестна, тогда пишем условно «если ребёнку 14+».
+    """
+    if not excursion.is_pushkin_card:
+        return False
+    if not student or not student.birth_date:
+        return None
+    on = excursion.event_date or datetime.utcnow().date()
+    b = student.birth_date
+    age = on.year - b.year - ((on.month, on.day) < (b.month, b.day))
+    return 14 <= age <= 22
+
+
+def reset_consent(
+    session: Session, excursion: Excursion, *, student_id: int, user_id: int | None,
+    as_teacher: bool = False, source: str = "api",
+) -> tuple[ExcursionParticipant, bool, str]:
+    participant = get_participant(session, excursion.id, student_id)
+    if participant is None:
+        raise ValueError("Ученик не найден в этом выезде")
+    if not can_change_answer(session, participant, excursion, user_id, as_teacher=as_teacher):
+        return participant, False, "Ответ уже нельзя изменить — позвоните классному руководителю."
+    reset_by = "классный руководитель (бумажный бланк)" if as_teacher else (participant.signed_by_name or "")
+    participant.consent_status = ConsentStatus.PENDING
+    if participant.ticket_status != TicketStatus.PAID:
+        participant.ticket_status = (
+            TicketStatus.WAITING_PAYMENT if (excursion.ticket_price or 0) > 0 else TicketStatus.NOT_REQUIRED
+        )
+    participant.rejection_reason = None
+    participant.signed_at = None
+    participant.signed_by_name = None
+    participant.signed_by_phone = None
+    participant.signed_by_max_user_id = None
+    participant.signed_source = None
+    session.add(participant)
+    session.add(ConsentAudit(excursion_id=excursion.id, student_id=student_id, action="RESET", source=source,
+                             parent_name=reset_by))
+    excursion.teacher_notified_complete = False
+    session.add(excursion)
+    session.commit()
+    session.refresh(participant)
+    return participant, True, "Выберите ответ заново."
 
 
 def confirm_ticket(
@@ -122,7 +262,7 @@ def confirm_ticket(
 ) -> tuple[ExcursionParticipant, bool, str]:
     participant = get_participant(session, excursion.id, student_id)
     if participant is None:
-        raise ValueError("Участник не найден в этом выезде")
+        raise ValueError("Ученик не найден в этом выезде")
     if participant.consent_status != ConsentStatus.APPROVED:
         return participant, False, "Сначала нужно подписать согласие."
     if participant.ticket_status == TicketStatus.PAID:
@@ -152,7 +292,9 @@ def dashboard(session: Session, excursion: Excursion) -> dict:
     for p in parts:
         student = session.get(Student, p.student_id)
         parents = student_parents(session, p.student_id)
-        activated = any(pc.max_user_id for pc in parents)
+        # Виртуальные родители демо-класса считаются «подключёнными»: они отвечают сами.
+        activated = any(pc.max_user_id or pc.is_virtual for pc in parents)
+        main_parent = next((pc for pc in parents if pc.max_user_id), parents[0] if parents else None)
         tl = compute_traffic_light(p)
         counts[tl.value] += 1
         rows.append(
@@ -164,13 +306,20 @@ def dashboard(session: Session, excursion: Excursion) -> dict:
                 "ticket_status": p.ticket_status,
                 "bot_activated": activated,
                 "parent_status": parent_status(p, activated),
+                "parent_name": main_parent.full_name if main_parent else None,
+                "parent_role": main_parent.role if main_parent else None,
+                "parent_phone": main_parent.phone_number if main_parent else None,
                 "signed_by_name": p.signed_by_name,
                 "signed_by_phone": p.signed_by_phone,
+                "signed_by_max_user_id": p.signed_by_max_user_id,
+                "signed_source": p.signed_source,
                 "signed_at": p.signed_at,
+                "present": p.present,
                 "rejection_reason": p.rejection_reason,
                 "ticket_number": p.ticket_number,
             }
         )
+    rows.sort(key=lambda r: r["full_name"])
     total = len(parts) or 1
     ready = counts["GREEN"] + counts["RED"]
     return {
@@ -187,7 +336,9 @@ def remind_targets(session: Session, excursion: Excursion) -> list[dict]:
     targets = []
     for p in parts:
         tl = compute_traffic_light(p)
-        if tl not in (TrafficLight.GREY, TrafficLight.YELLOW):
+        # Напоминаем только тем, кто не ответил. Об оплате билета не напоминаем:
+        # это читалось бы как понуждение семьи к расходам (письмо Минобрнауки ВК-2227/08).
+        if tl != TrafficLight.GREY:
             continue
         student = session.get(Student, p.student_id)
         parent = session.exec(
@@ -229,32 +380,72 @@ def unactivated_children(session: Session, excursion: Excursion) -> list[str]:
     return names
 
 
+FRESH_INVITE = timedelta(hours=6)
+QUIET_HOURS = (21, 8)  # с 21:00 до 08:00 по местному времени родителей не беспокоим
+
+
+def in_quiet_hours(now: datetime, tz: str | None = None) -> bool:
+    hour = timeutil.now_local(tz, now).hour
+    start, end = QUIET_HOURS
+    return hour >= start or hour < end
+
+
+def user_timezone(session: Session, max_user_id: int | None, fallback: str | None) -> str:
+    """Пояс телефона родителя (если открывал мини-приложение), иначе пояс школы."""
+    if max_user_id:
+        profile = session.exec(select(UserProfile).where(UserProfile.max_user_id == max_user_id)).first()
+        if profile and profile.timezone:
+            return profile.timezone
+    return fallback or timeutil.DEFAULT_TZ
+
+
 def due_auto_reminders(session: Session, now: datetime | None = None) -> list[dict]:
+    """Кому пора напомнить: не чаще одного раза на ступень (72/24/12 ч до срока).
+
+    Правила, чтобы не превращать бота в спам:
+    — первые 6 часов после приглашения не напоминаем (оно только что пришло);
+    — из подходящих ступеней шлём только самую срочную, без пачки сообщений;
+    — с 21:00 до 08:00 по местному времени родителя не напоминаем вовсе.
+    """
     now = now or datetime.utcnow()
     due: list[dict] = []
     excursions = session.exec(
         select(Excursion).where(Excursion.status == ExcursionStatus.VOTING, Excursion.deadline != None)  # noqa: E711
     ).all()
     for exc in excursions:
-        if exc.deadline <= now:
+        if exc.deadline <= now or (exc.created_at and now - exc.created_at < FRESH_INVITE):
             continue
-        for kind, offset in REMINDER_KINDS.items():
-            if now < exc.deadline - offset:
+        applicable = [k for k, off in sorted(REMINDER_KINDS.items(), key=lambda kv: kv[1]) if now >= exc.deadline - off]
+        if not applicable:
+            continue
+        kind = applicable[0]
+        for target in remind_targets(session, exc):
+            if not target["max_user_id"]:
                 continue
-            for target in remind_targets(session, exc):
-                if not target["max_user_id"]:
-                    continue
-                already = session.exec(
-                    select(ReminderLog).where(
-                        ReminderLog.excursion_id == exc.id,
-                        ReminderLog.student_id == target["student_id"],
-                        ReminderLog.kind == kind,
-                    )
-                ).first()
-                if already:
-                    continue
-                due.append({"excursion": exc, "kind": kind, **target})
+            if in_quiet_hours(now, user_timezone(session, target["max_user_id"], exc.timezone)):
+                continue
+            already = session.exec(
+                select(ReminderLog).where(
+                    ReminderLog.excursion_id == exc.id,
+                    ReminderLog.student_id == target["student_id"],
+                    ReminderLog.kind == kind,
+                )
+            ).first()
+            if already:
+                continue
+            due.append({"excursion": exc, "kind": kind, **target})
     return due
+
+
+MANUAL_REMINDER = "MANUAL"
+MANUAL_REMINDER_GAP = timedelta(hours=12)
+
+
+def recently_reminded(session: Session, excursion_id: int, student_id: int, now: datetime) -> bool:
+    """Любое напоминание этому родителю за последние 12 часов — повторно не шлём."""
+    return session.exec(select(ReminderLog).where(
+        ReminderLog.excursion_id == excursion_id, ReminderLog.student_id == student_id,
+        ReminderLog.sent_at >= now - MANUAL_REMINDER_GAP)).first() is not None
 
 
 def mark_reminder_sent(session: Session, excursion_id: int, student_id: int, kind: str) -> None:
@@ -267,10 +458,9 @@ def other_bound_parents(session: Session, student_id: int, exclude_user_id: int 
         select(ParentContact).where(
             ParentContact.student_id == student_id,
             ParentContact.max_user_id != None,  # noqa: E711
-            ParentContact.notifications_enabled == True,  # noqa: E712
         )
     ).all()
-    return [p for p in parents if p.max_user_id != exclude_user_id]
+    return [p for p in parents if p.max_user_id != exclude_user_id and p.confirmed and not p.is_virtual]
 
 
 def set_notifications(session: Session, max_user_id: int, enabled: bool) -> int:
@@ -303,6 +493,35 @@ def confirm_parent_link(session: Session, student_id: int, max_user_id: int, acc
     return parent
 
 
+PAIR_LINK_TTL = timedelta(hours=24)
+
+
+def pair_link_expired(link, now: datetime | None = None) -> bool:
+    """Ссылка для второго родителя живёт сутки: пересланная позже — уже не сработает."""
+    return (now or datetime.utcnow()) - link.created_at > PAIR_LINK_TTL
+
+
+def accept_pair_code(session: Session, code: str, user_id: int, name: str = "") -> Student | None:
+    """Второй родитель открыл ссылку: добавляем ему контакт ребёнка (или подтверждаем существующий)."""
+    from .models import BotLinkCode  # локальный импорт: модель нужна только здесь
+
+    link = session.exec(select(BotLinkCode).where(BotLinkCode.code == code, BotLinkCode.new_parent == True)).first()  # noqa: E712
+    if not link or link.used or pair_link_expired(link):
+        return None
+    student = session.get(Student, link.student_id)
+    if not student:
+        return None
+    existing = session.exec(select(ParentContact).where(
+        ParentContact.student_id == student.id, ParentContact.max_user_id == user_id)).first()
+    if not existing:
+        session.add(ParentContact(student_id=student.id, full_name=name or "Второй родитель", phone_number="",
+                                  role="Второй родитель", max_user_id=user_id, confirmed=True))
+    link.used = True
+    session.add(link)
+    session.commit()
+    return student
+
+
 def parent_context(session: Session, max_user_id: int) -> list[dict]:
     parents = session.exec(select(ParentContact).where(ParentContact.max_user_id == max_user_id)).all()
     result: list[dict] = []
@@ -313,16 +532,22 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
         excursions = session.exec(
             select(Excursion).where(Excursion.class_id == student.class_id)
         ).all()
+        klass = session.get(SchoolClass, student.class_id)
         items = []
+        newest = max((e.id for e in excursions), default=0)
         for exc in excursions:
             p = get_participant(session, exc.id, student.id)
-            if not p:
+            # В демо новый выезд закрывает прежний пример без рассылки — его родителю не показываем.
+            if not p or (exc.cancelled and klass and klass.is_demo and exc.id != newest):
                 continue
             items.append(
                 {
                     "excursion_id": exc.id,
                     "title": exc.title,
                     "location_name": exc.location_name,
+                    "address": exc.address,
+                    "meeting_point": exc.meeting_point,
+                    "responsible_teacher": exc.responsible_teacher,
                     "event_date": exc.event_date,
                     "gathering_time": exc.gathering_time.strftime("%H:%M") if exc.gathering_time else None,
                     "return_time": exc.return_time.strftime("%H:%M") if exc.return_time else None,
@@ -330,6 +555,12 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
                     "ticket_price": exc.ticket_price,
                     "ticket_sale_url": exc.ticket_sale_url,
                     "is_pushkin_card": exc.is_pushkin_card,
+                    # True / False / None (дата рождения неизвестна) — карта только для 14–22 лет
+                    "pushkin_ok": pushkin_for(student, exc),
+                    "can_change": can_change_answer(session, p, exc, max_user_id),
+                    "started": trip_started(exc),
+                    "timezone": exc.timezone or timeutil.DEFAULT_TZ,
+                    "cancelled": exc.cancelled,
                     "status": exc.status,
                     "traffic_light": compute_traffic_light(p).value,
                     "consent_status": p.consent_status.value,
@@ -339,10 +570,16 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
                     "signed_at": p.signed_at,
                 }
             )
+        items.sort(key=lambda i: (i["cancelled"], i["consent_status"] != "PENDING", str(i["event_date"] or "")))
         result.append(
             {
                 "student_id": student.id,
                 "student_name": student.full_name,
+                "class_title": klass.title if klass else "",
+                "school_name": klass.school_name if klass else "",
+                "teacher_name": klass.teacher_name if klass else "",
+                "teacher_phone": klass.teacher_phone if klass else "",
+                "is_demo": bool(klass and klass.is_demo),
                 "parent_name": parent.full_name,
                 "parent_role": parent.role,
                 "confirmed": parent.confirmed,
@@ -351,17 +588,3 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
             }
         )
     return result
-
-
-def reminder_text(excursion: Excursion, student_name: str, tl: TrafficLight) -> str:
-    if tl == TrafficLight.GREY:
-        return (
-            f"Напоминание по выезду «{excursion.title}».\n"
-            f"{student_name}: участие ещё не подтверждено.\n"
-            f"Нажмите «Отпускаю ребёнка» или «Не сможет поехать»."
-        )
-    return (
-        f"Напоминание по выезду «{excursion.title}».\n"
-        f"Согласие по {student_name} подписано, билет пока не отмечен.\n"
-        f"Купите билет по ссылке в карточке и нажмите «Билет куплен»."
-    )

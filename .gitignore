@@ -18,3 +18,4 @@ artifacts/ui/
 
 # Дубли variable-font сабсетов (не нужны: один файл покрывает все веса)
 *.dup
+.claude/

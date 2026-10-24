@@ -54,8 +54,8 @@ def test_DOC_4_only_approved(client: TestClient, first_class, paid_event) -> Non
     from sqlmodel import Session  # noqa: PLC0415
 
     with Session(engine) as s:
-        rows = _collect(s, s.get(Excursion, exc["id"]))
-    names = {r["name"] for r in rows}
+        pack = _collect(s, s.get(Excursion, exc["id"]))
+    names = {r.name for r in pack.going}  # в список группы попадают только отпущенные
     assert a["full_name"] in names
     assert b["full_name"] not in names
 

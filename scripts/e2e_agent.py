@@ -7,19 +7,23 @@
 backend поднимается в режиме MAX_BOT_MODE=polling и указывает на эмулятор, поэтому
 проверяется РЕАЛЬНЫЙ код адаптера бота, а не заглушка.
 
-Что проверяем (как это делал бы QA руками):
+Что проверяем (как это делал бы QA руками), в боевом режиме авторизации:
   1. бот приветствует родителя (bot_started) и отдаёт нативную кнопку open_app;
-  2. родитель нажимает «Отпускаю ребёнка» (message_callback) — согласие фиксируется;
-  3. дашборд «Светофор» отражает изменение статуса;
-  4. точечное напоминание уходит адресно (в личный диалог родителя);
-  5. приказ формируется и отдаётся (DOCX/PDF) — контракт файлов корректен;
-  6. идемпотентность: повторное нажатие не перезаписывает согласие.
+  2. учитель (подписанный initData MAX) создаёт класс и ссылку-приглашение;
+  3. родитель подключается по ссылке и номеру, подписанному MAX, принимает соглашение;
+  4. учитель создаёт выезд — родителю приходит приглашение с кнопками;
+  5. родитель нажимает «Да» (message_callback) — согласие фиксируется, «светофор» меняется;
+  6. идемпотентность: повторное нажатие не перезаписывает согласие;
+  7. безопасность: чужой не нажмёт кнопку за родителя, аноним не увидит данные класса;
+  8. напоминание, приказ по подписанной ссылке (DOCX/PDF), вебхук закрыт в режиме polling.
 
 Запуск:  ./.venv313/bin/python scripts/e2e_agent.py
 Зависимостей нет — только стандартная библиотека Python.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import socket
@@ -155,9 +159,33 @@ def free_port() -> int:
     return port
 
 
-def http(method: str, url: str, body: dict | None = None, raw: bool = False):
+EMULATOR_KEY = "emulator-token"
+
+
+def signed(uid: int, name: str) -> dict:
+    """Заголовок с initData, подписанным токеном бота, — как его передаёт мини-приложение MAX."""
+    pairs = {"auth_date": str(int(time.time())), "query_id": "e2e",
+             "user": json.dumps({"id": uid, "first_name": name}, ensure_ascii=False)}
+    launch = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
+    secret = hmac.new(b"WebAppData", EMULATOR_KEY.encode(), hashlib.sha256).digest()
+    sig = hmac.new(secret, launch.encode(), hashlib.sha256).hexdigest()
+    query = "&".join(f"{k}={urllib.parse.quote(v)}" for k, v in pairs.items()) + f"&hash={sig}"
+    return {"X-Max-Init-Data": query}
+
+
+def phone_proof(uid: int, phone: str) -> dict:
+    """Номер из WebApp.requestContact(): MAX подписывает его токеном бота."""
+    auth_date = str(int(time.time()))
+    msg = f"authDate={auth_date}\nphone={phone}\nuserId={uid}"
+    return {"phone": phone, "auth_date": auth_date,
+            "hash": hmac.new(EMULATOR_KEY.encode(), msg.encode(), hashlib.sha256).hexdigest()}
+
+
+def http(method: str, url: str, body: dict | None = None, raw: bool = False, headers: dict | None = None):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, method=method)
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
     if data:
         req.add_header("Content-Type", "application/json")
     try:
@@ -211,7 +239,7 @@ def main() -> int:
     env.update({
         "DATABASE_URL": f"sqlite:///{tmpdir}/e2e.db",
         "AUTO_SEED": "true",
-        "MAX_BOT_TOKEN": "emulator-token",
+        "MAX_BOT_TOKEN": EMULATOR_KEY,
         "MAX_BOT_MODE": "polling",
         "MAX_API_BASE": emu_base,
         "MAX_BOT_USERNAME": "classgo_emulator",
@@ -244,14 +272,14 @@ def main() -> int:
             "payload": None,
         })
         got_greeting = wait_until(
-            lambda: any(m["kind"] == "message" and m["body"].get("text", "").startswith("👋")
+            lambda: any(m["kind"] == "message" and "ClassGo" in m["body"].get("text", "")
                         for m in http("GET", f"{emu_base}/_outbox")[1]["messages"]),
             timeout=20,
         )
         checks.ok(got_greeting, "бот поприветствовал родителя (bot_started через long polling)")
 
         outbox = http("GET", f"{emu_base}/_outbox")[1]["messages"]
-        greet = next((m for m in outbox if m["kind"] == "message" and m["body"].get("text", "").startswith("👋")), None)
+        greet = next((m for m in outbox if m["kind"] == "message" and "ClassGo" in m["body"].get("text", "")), None)
         btn_types = set()
         if greet:
             for row in greet["body"].get("attachments", [{}])[0].get("payload", {}).get("buttons", []):
@@ -264,26 +292,49 @@ def main() -> int:
         checks.ok(got_commands and len(STATE["commands"]) >= 3,
                   f"команды бота зарегистрированы в MAX (PATCH /me/commands): {len(STATE.get('commands', []))}")
 
-        # --- Шаг 2. Учитель создаёт выезд через REST ---
-        classes = http("GET", f"{api_base}/api/v1/classes")[1]
-        klass = classes[0]
-        events = http("GET", f"{api_base}/api/v1/culture-events?pushkin=true")[1]
+        # --- Шаг 2. Учитель (подписанный вход MAX) создаёт класс ---
+        teacher, parent, stranger = 500001, 424242, 777999
+        T, P, X = signed(teacher, "Учитель"), signed(parent, "Родитель"), signed(stranger, "Чужой")
+        status, klass = http("POST", f"{api_base}/api/v1/classes", {
+            "grade": "6", "letter": "В", "school_name": "Школа E2E", "teacher_name": "Учитель Е. Е.",
+            "teacher_phone": "+79000000000",
+            "students": [{"full_name": "Иванов Пётр Сергеевич", "parent_phone": "+79001234567",
+                          "parent_name": "Иванова Анна Петровна"}],
+        }, headers=T)
+        checks.ok(status == 201 and klass.get("owner_user_id") == teacher, "учитель создал класс (initData MAX)")
         student_id = klass["students"][0]["id"]
+        invite = http("POST", f"{api_base}/api/v1/classes/{klass['id']}/invite", headers=T)[1]
+
+        # --- Шаг 3. Родитель подключается по ссылке и номеру, подписанному MAX ---
+        status, joined = http("POST", f"{api_base}/api/v1/parent/join",
+                              {"code": invite["code"], **phone_proof(parent, "79001234567")}, headers=P)
+        checks.ok(status == 200 and joined.get("status") == "linked", "родитель подключился по номеру из MAX")
+        fake = http("POST", f"{api_base}/api/v1/parent/join",
+                    {"code": invite["code"], "phone": "79001234567", "auth_date": "1", "hash": "00"}, headers=X)
+        checks.ok(fake[0] == 403, "чужой не подключится к ребёнку без подписи номера от MAX")
+        http("POST", f"{api_base}/api/v1/me/accept-terms", headers=P)
+
+        # --- Шаг 4. Учитель создаёт выезд — родителю приходит приглашение ---
+        events = http("GET", f"{api_base}/api/v1/culture-events?pushkin=true")[1]
         status, exc = http("POST", f"{api_base}/api/v1/excursions", {
-            "class_id": klass["id"], "culture_event_id": events[0]["id"],
-            "gathering_time": "08:30", "return_time": "14:00",
-        })
+            "class_id": klass["id"], "culture_event_id": events[0]["id"], "gathering_time": "08:30",
+            "return_time": "14:00", "escorts": "Помощник П. П.", "notify_parents": True,
+        }, headers=T)
         checks.ok(status == 201 and exc.get("id"), "выезд создан по событию «Пушкинской карты»")
         exc_id = exc["id"]
+        invited = wait_until(
+            lambda: any(m["kind"] == "message" and m.get("user_id") == str(parent)
+                        and "пойдёт" in json.dumps(m["body"], ensure_ascii=False)
+                        for m in http("GET", f"{emu_base}/_outbox")[1]["messages"]),
+            timeout=15,
+        )
+        checks.ok(invited, "родителю пришло приглашение с кнопками «Да / Нет»")
 
-        # --- Шаг 3. Родитель нажимает кнопку «Отпускаю ребёнка» в чате ---
+        # --- Шаг 5. Родитель нажимает «Да» в чате ---
         http("POST", f"{emu_base}/_inject", {
             "update_type": "message_callback", "timestamp": int(time.time() * 1000),
-            "callback": {
-                "callback_id": "cb-consent-1",
-                "payload": f"consent:{exc_id}:{student_id}:APPROVED",
-                "user": {"user_id": 424242, "name": "Родитель"},
-            },
+            "callback": {"callback_id": "cb-consent-1", "payload": f"consent:{exc_id}:{student_id}:APPROVED",
+                         "user": {"user_id": parent, "name": "Родитель"}},
         })
         answered = wait_until(
             lambda: any(m["kind"] == "answer" and m.get("callback_id") == "cb-consent-1"
@@ -291,49 +342,59 @@ def main() -> int:
             timeout=20,
         )
         checks.ok(answered, "бот ответил на нажатие кнопки (POST /answers)")
+        dash = http("GET", f"{api_base}/api/v1/excursions/{exc_id}/dashboard", headers=T)[1]
+        row = next((p for p in dash.get("participants", []) if p["student_id"] == student_id), None)
+        checks.ok(row and row["consent_status"] == "APPROVED", "согласие родителя зафиксировано через чат-бота")
+        checks.ok(row and row["signed_by_max_user_id"] == parent, "в подписи — MAX ID родителя")
 
-        dash = http("GET", f"{api_base}/api/v1/excursions/{exc_id}/dashboard")[1]
-        row = next((p for p in dash["participants"] if p["student_id"] == student_id), None)
-        checks.ok(row and row["consent_status"] == "APPROVED",
-                  "согласие родителя зафиксировано через чат-бота")
-        checks.ok(row and row["ticket_status"] in ("WAITING_PAYMENT", "NOT_REQUIRED"),
-                  "после согласия выставлен корректный статус билета")
-
-        # --- Шаг 4. Идемпотентность: повторное нажатие ---
+        # --- Шаг 6. Идемпотентность: повторное нажатие ---
         http("POST", f"{emu_base}/_inject", {
             "update_type": "message_callback", "timestamp": int(time.time() * 1000),
-            "callback": {
-                "callback_id": "cb-consent-2",
-                "payload": f"consent:{exc_id}:{student_id}:REJECTED",
-                "user": {"user_id": 424242, "name": "Родитель"},
-            },
+            "callback": {"callback_id": "cb-consent-2", "payload": f"consent:{exc_id}:{student_id}:REJECTED",
+                         "user": {"user_id": parent, "name": "Родитель"}},
         })
         time.sleep(2)
-        dash2 = http("GET", f"{api_base}/api/v1/excursions/{exc_id}/dashboard")[1]
-        row2 = next((p for p in dash2["participants"] if p["student_id"] == student_id), None)
+        dash2 = http("GET", f"{api_base}/api/v1/excursions/{exc_id}/dashboard", headers=T)[1]
+        row2 = next((p for p in dash2.get("participants", []) if p["student_id"] == student_id), None)
         checks.ok(row2 and row2["consent_status"] == "APPROVED",
-                  "повторное нажатие НЕ перезаписывает согласие (правило «двух родителей»)")
+                  "повторное нажатие НЕ перезаписывает согласие")
 
-        # --- Шаг 5. Напоминания должникам (адресно) ---
-        remind = http("POST", f"{api_base}/api/v1/excursions/{exc_id}/remind-unconfirmed")[1]
+        # --- Шаг 7. Безопасность ---
+        http("POST", f"{emu_base}/_inject", {
+            "update_type": "message_callback", "timestamp": int(time.time() * 1000),
+            "callback": {"callback_id": "cb-stranger", "payload": f"consent:{exc_id}:{student_id}:REJECTED",
+                         "user": {"user_id": stranger, "name": "Чужой"}},
+        })
+        refused = wait_until(
+            lambda: any(m["kind"] == "answer" and m.get("callback_id") == "cb-stranger"
+                        and "для родителя" in json.dumps(m["body"], ensure_ascii=False)
+                        for m in http("GET", f"{emu_base}/_outbox")[1]["messages"]),
+            timeout=15,
+        )
+        checks.ok(refused, "чужой не может нажать кнопку за родителя")
+        checks.ok(http("GET", f"{api_base}/api/v1/excursions/{exc_id}/dashboard")[0] == 403,
+                  "аноним не видит список класса")
+        checks.ok(http("GET", f"{api_base}/api/v1/excursions/{exc_id}/dashboard?user_id={teacher}")[0] == 403,
+                  "подставленный ?user_id не работает в боевом режиме")
+        checks.ok(http("GET", f"{api_base}/api/v1/excursions/{exc_id}/dashboard", headers=X)[0] == 403,
+                  "другой пользователь MAX не видит чужой класс")
+
+        # --- Шаг 8. Напоминание, приказ, вебхук ---
+        remind = http("POST", f"{api_base}/api/v1/excursions/{exc_id}/remind-unconfirmed", headers=T)[1]
         checks.ok("targeted" in remind, "эндпоинт напоминаний вернул сводку")
-        time.sleep(1)
-        # --- Шаг 6. Приказ ---
-        gen = http("POST", f"{api_base}/api/v1/excursions/{exc_id}/export-order")[1]
+        gen = http("POST", f"{api_base}/api/v1/excursions/{exc_id}/export-order", headers=T)[1]
         checks.ok(gen.get("version", 0) >= 1, "приказ сформирован (версия зафиксирована)")
-        s_docx, docx = http("GET", f"{api_base}/api/v1/excursions/{exc_id}/export-order?fmt=docx", raw=True)
-        s_pdf, pdf = http("GET", f"{api_base}/api/v1/excursions/{exc_id}/export-order?fmt=pdf", raw=True)
+        s_docx, docx = http("GET", gen.get("docx_url", ""), raw=True)
+        s_pdf, pdf = http("GET", gen.get("pdf_url", ""), raw=True)
         checks.ok(s_docx == 200 and isinstance(docx, bytes) and docx[:2] == b"PK",
-                  "DOCX-приказ отдаётся корректно (zip-контейнер)")
+                  "DOCX-приказ по подписанной ссылке (zip-контейнер)")
         checks.ok(s_pdf == 200 and isinstance(pdf, bytes) and pdf[:4] == b"%PDF",
-                  "PDF-приказ отдаётся корректно (%PDF)")
-
-        # --- Шаг 7. Вебхук-режим (production-канал) ---
-        wh = http("POST", f"{api_base}/webhook/max", {
-            "update_type": "bot_started", "timestamp": 1, "chat_id": 1,
-            "user": {"user_id": 1}, "payload": None,
-        })[1]
-        checks.ok(wh.get("ok") is True, "webhook-эндпоинт принимает одиночный Update")
+                  "PDF-приказ по подписанной ссылке (%PDF)")
+        checks.ok(http("GET", f"{api_base}/api/v1/excursions/{exc_id}/export-order?fmt=pdf", raw=True)[0] == 403,
+                  "без подписанной ссылки приказ не скачать")
+        wh = http("POST", f"{api_base}/webhook/max", {"update_type": "bot_started", "timestamp": 1,
+                                                     "chat_id": 1, "user": {"user_id": 1}, "payload": None})
+        checks.ok(wh[0] == 404, "вебхук закрыт, пока бот работает через polling")
 
         print(f"\n── Итог E2E: успешно {checks.passed}, провалено {checks.failed} ──")
         return 0 if checks.failed == 0 else 1

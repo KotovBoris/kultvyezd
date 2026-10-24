@@ -70,6 +70,13 @@ class SchoolClass(SQLModel, table=True):
     teacher_max_id: Optional[int] = None
     teacher_name: str = ""
     teacher_phone: str = ""
+    # Часовой пояс школы (IANA): «сбор в 09:30» — по этим часам.
+    timezone: str = "Europe/Moscow"
+    # Код приглашения родителей класса (ссылка/QR): родитель открывает его в MAX,
+    # подтверждает номер телефона и сразу привязывается к своему ребёнку.
+    invite_code: Optional[str] = Field(default=None, index=True)
+    # Личная демо-песочница пользователя: класс с «виртуальными» родителями.
+    is_demo: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     students: List["Student"] = Relationship(back_populates="school_class")
@@ -107,6 +114,8 @@ class ParentContact(SQLModel, table=True):
     role: str = "Законный представитель"
     confirmed: bool = False
     notifications_enabled: bool = True
+    # Виртуальный родитель демо-класса: отвечает сам, сообщений ему не шлём.
+    is_virtual: bool = False
 
     student: Optional[Student] = Relationship(back_populates="parents")
 
@@ -150,6 +159,18 @@ class Excursion(SQLModel, table=True):
     school_name: str = ""
     order_basis: str = "План воспитательной работы школы"
     responsible_teacher: str = ""
+    meeting_point: str = "у главного входа школы"
+    escorts: str = ""  # сопровождающие взрослые (помощник руководителя группы)
+    # Способ передвижения: от него зависит режим (автобус — организованная перевозка, ПП РФ № 680).
+    transport: str = "пешком и на общественном транспорте"
+    created_by_user_id: Optional[int] = Field(default=None, index=True)
+    timezone: str = "Europe/Moscow"
+    # Учителю один раз сообщаем, что ответили все родители.
+    teacher_notified_complete: bool = False
+    # День выезда: когда группа выехала и вернулась (родителям уходит сообщение).
+    departed_at: Optional[datetime] = None
+    returned_at: Optional[datetime] = None
+    cancelled: bool = False
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -166,7 +187,12 @@ class ExcursionParticipant(SQLModel, table=True):
 
     signed_by_phone: Optional[str] = None
     signed_by_name: Optional[str] = None
+    # MAX ID подписанта — реквизит простой электронной подписи (63-ФЗ, ст. 9).
+    signed_by_max_user_id: Optional[int] = None
+    signed_source: Optional[str] = None
     signed_at: Optional[datetime] = None
+    # Перекличка в день выезда: None — ещё не отмечен, True — на месте, False — не пришёл.
+    present: Optional[bool] = None
     rejection_reason: Optional[str] = None
     ticket_number: Optional[str] = None
 
@@ -201,6 +227,9 @@ class BotLinkCode(SQLModel, table=True):
     student_id: int
     parent_phone: str = ""
     used: bool = False
+    # Приглашение второго родителя: по ссылке создаётся ещё один контакт ребёнка.
+    new_parent: bool = False
+    invited_by_user_id: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -212,3 +241,38 @@ class ReminderLog(SQLModel, table=True):
     student_id: int = Field(index=True)
     kind: str = Field(index=True)
     sent_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class UserProfile(SQLModel, table=True):
+    """Пользователь MAX: имя из initData/апдейтов бота и последняя выбранная роль."""
+
+    __tablename__ = "user_profile"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    max_user_id: int = Field(index=True, unique=True)
+    first_name: str = ""
+    last_name: str = ""
+    role: Optional[str] = None  # teacher | parent
+    # Соглашение об использовании ПЭП и отдельное согласие на обработку ПДн (156-ФЗ).
+    terms_accepted_at: Optional[datetime] = None
+    # Пояс телефона (из мини-приложения): тихие часы напоминаний — по нему.
+    timezone: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    @property
+    def display_name(self) -> str:
+        return " ".join(p for p in (self.first_name, self.last_name) if p).strip()
+
+
+class DemoAnswer(SQLModel, table=True):
+    """Запланированный ответ виртуального родителя в демо-классе."""
+
+    __tablename__ = "demo_answer"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    excursion_id: int = Field(index=True)
+    student_id: int = Field(index=True)
+    decision: str = "APPROVED"  # APPROVED | REJECTED | TICKET
+    reason: Optional[str] = None
+    due_at: datetime = Field(index=True)
+    done: bool = Field(default=False, index=True)
