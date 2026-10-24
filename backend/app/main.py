@@ -1316,10 +1316,13 @@ async def _join_demo_class(session: Session, klass: SchoolClass, caller: Caller)
     if settings.bot_enabled:
         bot = BotService()
         try:
+            # На сцене гости входят до того, как учитель отправит выезд: на пример не зовём,
+            # иначе через минуту у них два приглашения на один спектакль.
             trip = demo.active_trip(session, klass)
-            if trip:
+            invited = bool(trip and not demo.is_sample_trip(session, klass, trip))
+            if invited:
                 await bot.invite_one(trip.id, student.id, caller.user_id)
-            await bot.notify_owner_joined(klass, name or "Новый родитель", student.full_name)
+            await bot.notify_owner_joined(klass, name or "Новый родитель", student.full_name, invited)
         except Exception:  # noqa: BLE001
             log.warning("Не удалось отправить приглашение новому родителю демо-класса %s", klass.id)
     return JoinOut(status="linked", message="Готово: вы родитель ученика демо-класса.", children=[student.full_name],

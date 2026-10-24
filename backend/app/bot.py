@@ -691,14 +691,16 @@ class BotService:
             text, keyboard = self._parent_card(excursion, student.full_name, participant)
         return await self.client.send_message(user_id=user_id, text=text, attachments=keyboard) is not None
 
-    async def notify_owner_joined(self, klass: SchoolClass, parent_name: str, student_name: str) -> None:
+    async def notify_owner_joined(self, klass: SchoolClass, parent_name: str, student_name: str,
+                                  invited: bool = True) -> None:
         teacher_id = klass.teacher_max_id or klass.owner_user_id
         if not teacher_id:
             return
         await self.client.send_message(
             user_id=teacher_id,
             text=f"{klass.title}: подключился родитель — {parent_name} ({student_name}). "
-                 "Приглашения на выезды уже отправлены.",
+                 + ("Приглашение на выезд уже отправлено." if invited
+                    else "Приглашение придёт, когда вы отправите выезд."),
         )
 
     def _going_parents(self, session: Session, excursion: Excursion) -> list[tuple[Student, ParentContact, object]]:

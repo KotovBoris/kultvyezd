@@ -109,6 +109,12 @@ def active_trip(session: Session, klass: SchoolClass) -> Excursion | None:
     return None
 
 
+def is_sample_trip(session: Session, klass: SchoolClass, trip: Excursion) -> bool:
+    """Пример, созданный вместе с демо-классом, — самый первый выезд класса."""
+    first = session.exec(select(Excursion).where(Excursion.class_id == klass.id).order_by(Excursion.id)).first()
+    return bool(first) and first.id == trip.id
+
+
 def retire_previous_trips(session: Session, klass: SchoolClass, keep_id: int) -> int:
     """Новый выезд в демо-классе заменяет прежний пример: тот закрывается без рассылки,
     чтобы у гостя из зала было одно приглашение, а не два."""

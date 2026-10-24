@@ -108,3 +108,18 @@ def test_POL_4_bot_texts(client: TestClient) -> None:
         exc = s.get(Excursion, info["excursion_ids"][0])
         lines = bot._trip_lines(exc)
     assert lines[0] == quoted(exc.title) and lines[1] == f"Где: {exc.location_name}"
+
+
+def test_POL_5_sample_trip_is_not_offered_to_hall(client: TestClient) -> None:
+    owner = 7_800_401
+    info = client.post("/api/v1/demo/start", params={"user_id": owner}).json()
+    events = client.get("/api/v1/culture-events").json()
+    with Session(engine) as s:
+        klass = s.get(SchoolClass, info["class_id"])
+        sample = demo.active_trip(s, klass)
+        assert sample and demo.is_sample_trip(s, klass, sample)
+    exc = make_excursion(client, {"id": info["class_id"], "owner_user_id": owner}, events[1]["id"])
+    with Session(engine) as s:
+        klass = s.get(SchoolClass, info["class_id"])
+        live = demo.active_trip(s, klass)
+        assert live.id == exc["id"] and not demo.is_sample_trip(s, klass, live)
