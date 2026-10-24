@@ -159,7 +159,7 @@ def free_port() -> int:
     return port
 
 
-TOKEN = "emulator-token"
+EMULATOR_KEY = "emulator-token"
 
 
 def signed(uid: int, name: str) -> dict:
@@ -167,7 +167,7 @@ def signed(uid: int, name: str) -> dict:
     pairs = {"auth_date": str(int(time.time())), "query_id": "e2e",
              "user": json.dumps({"id": uid, "first_name": name}, ensure_ascii=False)}
     launch = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
-    secret = hmac.new(b"WebAppData", TOKEN.encode(), hashlib.sha256).digest()
+    secret = hmac.new(b"WebAppData", EMULATOR_KEY.encode(), hashlib.sha256).digest()
     sig = hmac.new(secret, launch.encode(), hashlib.sha256).hexdigest()
     query = "&".join(f"{k}={urllib.parse.quote(v)}" for k, v in pairs.items()) + f"&hash={sig}"
     return {"X-Max-Init-Data": query}
@@ -178,7 +178,7 @@ def phone_proof(uid: int, phone: str) -> dict:
     auth_date = str(int(time.time()))
     msg = f"authDate={auth_date}\nphone={phone}\nuserId={uid}"
     return {"phone": phone, "auth_date": auth_date,
-            "hash": hmac.new(TOKEN.encode(), msg.encode(), hashlib.sha256).hexdigest()}
+            "hash": hmac.new(EMULATOR_KEY.encode(), msg.encode(), hashlib.sha256).hexdigest()}
 
 
 def http(method: str, url: str, body: dict | None = None, raw: bool = False, headers: dict | None = None):
@@ -239,7 +239,7 @@ def main() -> int:
     env.update({
         "DATABASE_URL": f"sqlite:///{tmpdir}/e2e.db",
         "AUTO_SEED": "true",
-        "MAX_BOT_TOKEN": TOKEN,
+        "MAX_BOT_TOKEN": EMULATOR_KEY,
         "MAX_BOT_MODE": "polling",
         "MAX_API_BASE": emu_base,
         "MAX_BOT_USERNAME": "classgo_emulator",
