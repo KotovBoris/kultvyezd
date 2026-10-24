@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button, Input } from "@maxhub/max-ui";
 import { api, type CultureEvent, type SchoolClass } from "../api";
-import { addDays, dayLong, dayShort, isoDate, money, parseDay, plural, quote } from "../format";
+import { addDays, dayLong, dayShort, firstName, isoDate, money, parseDay, plural, quote } from "../format";
 import { haptic, setClosingConfirmation } from "../max";
 import { errorText, replace, toast } from "../store";
 import { Card, Chip, Empty, Field, Hero, Icon, Loader, Notice, Page, Section, Tag } from "../ui";
@@ -121,6 +121,9 @@ export default function NewTrip({ classId }: { classId?: number }) {
 
   const connected = klass ? klass.parents_connected : 0;
   const total = klass ? klass.students.length : 0;
+  // Превью на примере первого ученика из списка — так же, как придёт настоящей семье.
+  const sampleKid = klass?.students[0]?.full_name ?? "";
+  const kidName = sampleKid ? firstName(sampleKid) : "Имя";
   const todayIso = isoDate(new Date());
   const deadlineOk = deadlineDate >= todayIso && (!date || deadlineDate <= date);
   const timesOk = !gathering || !returning || returning > gathering;
@@ -396,16 +399,21 @@ export default function NewTrip({ classId }: { classId?: number }) {
           <Section title="Так увидят родители">
             <div className="cg-preview">
               <div className="cg-preview-bubble">
-                <b>ФИО ребёнка ({klass.title}) — приглашение на выезд</b>
+                <b>{sampleKid || "ФИО ребёнка"} ({klass.title}) — приглашение на выезд</b>
                 <p>
                   Здравствуйте! Классный руководитель {klass.teacher_name || "класса"}
                   {klass.school_name ? `, ${klass.school_name},` : ""} зовёт класс:
                   <br />
                   <br />
                   {quote(shown.title)}
-                  {shown.venue ? ` — ${shown.venue}` : ""}
+                  {shown.venue && (
+                    <>
+                      <br />
+                      Где: {shown.venue}
+                    </>
+                  )}
                   <br />
-                  Когда: {dayLong(date)}, сбор в {gathering} {meeting}, вернёмся к {returning}
+                  Когда: {dayShort(date)}, сбор в {gathering} {meeting}, вернёмся к {returning}
                   <br />
                   {shown.price > 0
                     ? `Билет: ${money(shown.price)} — покупаете сами, на сайте или в кассе. Школа деньги не собирает.`
@@ -420,8 +428,8 @@ export default function NewTrip({ classId }: { classId?: number }) {
                 </p>
               </div>
               <div className="cg-preview-buttons">
-                <span>✅ Да, Имя пойдёт</span>
-                <span>Нет, Имя не пойдёт</span>
+                <span>✅ Да, {kidName} пойдёт</span>
+                <span>Нет, {kidName} не пойдёт</span>
                 <span>Подробнее</span>
               </div>
             </div>
