@@ -40,7 +40,7 @@ async def test_POL_1_change_answer_keeps_old_until_new_choice(client: TestClient
 
     # «Изменить ответ» только показывает выбор — согласие остаётся в силе
     await _press(bot, owner, f"change:{exc_id}:{sid}", 2)
-    assert "Выберите новый ответ" in fake.answers[-1]["text"]
+    assert "действует прежний" in fake.answers[-1]["text"]
     assert _status(exc_id, sid).consent_status == ConsentStatus.APPROVED
 
     # «Нет» → выбор причины, ответ всё ещё прежний

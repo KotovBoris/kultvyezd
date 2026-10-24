@@ -438,14 +438,18 @@ class BotService:
                         callback_id, notification="Ответ уже нельзя изменить — позвоните классному руководителю.")
                     return
                 name = first_name(student.full_name) if student else "ребёнок"
-                now = (f"Сейчас: {name} идёт на выезд." if participant.consent_status == ConsentStatus.APPROVED
-                       else f"Сейчас: {name} не пойдёт.")
-            await self.client.answer_callback(callback_id, text=f"{now}\nВыберите новый ответ:", attachments=[
-                inline_keyboard([
-                    [callback_button(f"✅ Да, {name} пойдёт", f"switch:{exc_id_i}:{student_id_i}:APPROVED")],
-                    [callback_button(f"Нет, {name} не пойдёт", f"switch:{exc_id_i}:{student_id_i}:REJECTED")],
-                    [callback_button("← Оставить как есть", f"back:{exc_id_i}:{student_id_i}")],
-                ])])
+                going = participant.consent_status == ConsentStatus.APPROVED
+            now = f"Сейчас: {name} идёт на выезд." if going else f"Сейчас: {name} не пойдёт."
+            rows = [] if going else [[callback_button(f"✅ Да, {name} пойдёт",
+                                                      f"switch:{exc_id_i}:{student_id_i}:APPROVED")]]
+            rows += [
+                [callback_button(f"Нет, {name} не пойдёт" if going else "Указать другую причину",
+                                 f"switch:{exc_id_i}:{student_id_i}:REJECTED")],
+                [callback_button("← Оставить как есть", f"back:{exc_id_i}:{student_id_i}")],
+            ]
+            await self.client.answer_callback(
+                callback_id, text=f"{now} Пока вы не выберете новый ответ, действует прежний.",
+                attachments=[inline_keyboard(rows)])
             return
 
         if payload.startswith(("switch:", "swreason:")):
