@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from openpyxl import load_workbook
 from sqlmodel import Session, select
 
-from . import __version__, demo, services
+from . import __version__, demo, services, timeutil
 from .auth import Caller, get_caller, remember_profile, require_user, strict_auth
 from .bot import BotService, class_chat_id
 from .catalog_seed import SOURCE, refresh_catalog_dates, seed_all
@@ -97,11 +97,11 @@ _reminder_task: asyncio.Task | None = None
 _demo_task: asyncio.Task | None = None
 
 
-def _naive_utc(value: datetime | None) -> datetime | None:
-    """Дедлайн из браузера приходит с часовым поясом — храним в UTC без зоны, как datetime.utcnow()."""
-    if value is None or value.tzinfo is None:
-        return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+def _naive_utc(value: datetime | None, tz: str | None = None) -> datetime | None:
+    """Срок ответа → UTC без зоны. Время без пояса — это часы школы (пояс класса)."""
+    if value is None:
+        return None
+    return timeutil.local_to_utc(value, tz)
 
 
 def _time_from_str(value: str | None) -> time | None:
@@ -121,7 +121,8 @@ def _excursion_out(exc: Excursion, session: Session | None = None, with_stats: b
         data = services.excursion_summary(session, exc)
         stats = ExcursionStats(**{k: data[k] for k in ExcursionStats.model_fields})
     return ExcursionOut(
-        id=exc.id, class_id=exc.class_id, title=exc.title, location_name=exc.location_name,
+        id=exc.id, class_id=exc.class_id, timezone=exc.timezone or timeutil.DEFAULT_TZ,
+        title=exc.title, location_name=exc.location_name,
         address=exc.address, event_date=exc.event_date,
         gathering_time=exc.gathering_time.strftime("%H:%M") if exc.gathering_time else None,
         return_time=exc.return_time.strftime("%H:%M") if exc.return_time else None,
@@ -513,6 +514,7 @@ async def import_class(
     school_name: str = Query(default=""),
     teacher_name: str = Query(default=""),
     teacher_phone: str = Query(default=""),
+    tz: str = Query(default="", alias="timezone"),
     caller: Caller = Depends(get_caller),
     session: Session = Depends(get_session),
 ) -> ImportResult:
@@ -530,7 +532,7 @@ async def import_class(
 
     klass = SchoolClass(grade=grade, letter=letter, school_number=school_number,
                         school_name=school_name, teacher_name=teacher_name, teacher_phone=teacher_phone.strip(),
-                        owner_user_id=caller.user_id)
+                        timezone=timeutil.valid_tz(tz or caller.timezone), owner_user_id=caller.user_id)
     _apply_school(session, klass, school_id)
     session.add(klass)
     session.commit()
@@ -584,7 +586,7 @@ def create_class(payload: ClassCreate, caller: Caller = Depends(get_caller),
         grade=payload.grade.strip(), letter=payload.letter.strip(),
         school_number=payload.school_number, school_name=payload.school_name,
         teacher_name=payload.teacher_name, teacher_phone=payload.teacher_phone.strip(), chat_id=payload.chat_id,
-        owner_user_id=payload.user_id,
+        timezone=timeutil.valid_tz(payload.timezone or caller.timezone), owner_user_id=payload.user_id,
     )
     _apply_school(session, klass, payload.school_id)
     session.add(klass)
@@ -746,7 +748,8 @@ async def create_excursion(payload: ExcursionCreate, caller: Caller = Depends(ge
         event_date=payload.event_date or (event.event_date if event else None),
         gathering_time=_time_from_str(payload.gathering_time),
         return_time=_time_from_str(payload.return_time),
-        deadline=_naive_utc(payload.deadline),
+        deadline=_naive_utc(payload.deadline, klass.timezone),
+        timezone=klass.timezone or timeutil.DEFAULT_TZ,
         ticket_price=payload.ticket_price if payload.ticket_price is not None else (event.price if event else 0.0),
         ticket_sale_url=payload.ticket_sale_url or (event.ticket_url if event else ""),
         is_pushkin_card=payload.is_pushkin_card if payload.is_pushkin_card is not None else (event.pushkin_eligible if event else False),
@@ -995,8 +998,9 @@ async def remind_unconfirmed(excursion_id: int, caller: Caller = Depends(get_cal
                              session: Session = Depends(get_session)) -> RemindResponse:
     exc = _teacher_excursion(session, excursion_id, caller)
     bot = BotService()
-    targeted, delivered = await bot.remind(exc, session)
-    return RemindResponse(targeted=targeted, delivered=len(delivered), recipients=delivered)
+    targeted, delivered, skipped = await bot.remind(exc, session)
+    return RemindResponse(targeted=targeted, delivered=len(delivered), recipients=delivered,
+                          skipped_quiet=skipped["quiet"], skipped_recent=skipped["recent"])
 
 
 @app.post("/api/v1/excursions/{excursion_id}/publish", tags=["consent"])

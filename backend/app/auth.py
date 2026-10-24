@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 
 from .config import get_settings
 from .max_validate import validate_webapp_data
+from .timeutil import valid_tz
 from .models import UserProfile
 
 INIT_DATA_HEADER = "X-Max-Init-Data"
@@ -36,6 +37,7 @@ class Caller:
     verified: bool
     first_name: str = ""
     last_name: str = ""
+    timezone: str = ""  # пояс телефона из заголовка X-Timezone
 
     @property
     def auth(self) -> str:
@@ -79,7 +81,9 @@ def caller_from_request(request: Request, user_id: int | None) -> Caller:
 
 def get_caller(request: Request, user_id: int | None = Query(default=None)) -> Caller:
     """FastAPI-зависимость: проверенный пользователь MAX (или демо-user_id вне строгого режима)."""
-    return caller_from_request(request, user_id)
+    caller = caller_from_request(request, user_id)
+    caller.timezone = request.headers.get("X-Timezone", "")[:64]
+    return caller
 
 
 def require_user(caller: Caller) -> int:
@@ -97,6 +101,8 @@ def remember_profile(session: Session, caller: Caller) -> UserProfile | None:
     if caller.first_name:
         profile.first_name = caller.first_name
         profile.last_name = caller.last_name
+    if caller.timezone and valid_tz(caller.timezone) == caller.timezone:
+        profile.timezone = caller.timezone
     session.add(profile)
     session.commit()
     session.refresh(profile)

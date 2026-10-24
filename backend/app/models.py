@@ -70,6 +70,8 @@ class SchoolClass(SQLModel, table=True):
     teacher_max_id: Optional[int] = None
     teacher_name: str = ""
     teacher_phone: str = ""
+    # Часовой пояс школы (IANA): «сбор в 09:30» — по этим часам.
+    timezone: str = "Europe/Moscow"
     # Код приглашения родителей класса (ссылка/QR): родитель открывает его в MAX,
     # подтверждает номер телефона и сразу привязывается к своему ребёнку.
     invite_code: Optional[str] = Field(default=None, index=True)
@@ -162,6 +164,7 @@ class Excursion(SQLModel, table=True):
     # Способ передвижения: от него зависит режим (автобус — организованная перевозка, ПП РФ № 680).
     transport: str = "пешком и на общественном транспорте"
     created_by_user_id: Optional[int] = Field(default=None, index=True)
+    timezone: str = "Europe/Moscow"
     # Учителю один раз сообщаем, что ответили все родители.
     teacher_notified_complete: bool = False
     # День выезда: когда группа выехала и вернулась (родителям уходит сообщение).
@@ -252,6 +255,8 @@ class UserProfile(SQLModel, table=True):
     role: Optional[str] = None  # teacher | parent
     # Соглашение об использовании ПЭП и отдельное согласие на обработку ПДн (156-ФЗ).
     terms_accepted_at: Optional[datetime] = None
+    # Пояс телефона (из мини-приложения): тихие часы напоминаний — по нему.
+    timezone: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     @property

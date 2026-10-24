@@ -215,7 +215,7 @@ function TripCard({ trip }: { trip: Excursion }) {
             {s && !trip.cancelled && !done && <Status tone="waiting">Ждём ответа: {s.waiting} из {s.total}</Status>}
             {s && !trip.cancelled && !done && trip.deadline && (
               <span className="cg-muted cg-small cg-deadline">
-                {closed ? "Срок ответа прошёл" : `Ответить до ${deadlineText(trip.deadline)}`}
+                {closed ? "Срок ответа прошёл" : `Ответить до ${deadlineText(trip.deadline, trip.timezone)}`}
               </span>
             )}
           </div>

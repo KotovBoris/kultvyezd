@@ -37,18 +37,55 @@ export function dayParts(value: string | null | undefined): { day: string; month
   return { day: String(d.getDate()), month: MONTHS_SHORT[d.getMonth()] };
 }
 
-export function deadlineText(value: string | null | undefined): string {
-  const d = parseUtc(value);
-  if (!d) return "";
-  const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  return `${d.getDate()} ${MONTHS[d.getMonth()]}, ${time}`;
+/** День, месяц и время момента по часам пояса tz (по умолчанию — пояс телефона). */
+function partsIn(d: Date, tz?: string): { day: number; month: number; time: string } {
+  try {
+    const parts = new Intl.DateTimeFormat("ru-RU", {
+      timeZone: tz || undefined, day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    }).formatToParts(d);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+    return { day: Number(get("day")), month: Number(get("month")) - 1, time: `${get("hour")}:${get("minute")}` };
+  } catch {
+    const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+    return { day: d.getDate(), month: d.getMonth(), time };
+  }
 }
 
-export function stamp(value: string | null | undefined): string {
+/** Срок ответа по времени школы: «27 октября, 18:00». */
+export function deadlineText(value: string | null | undefined, tz?: string): string {
   const d = parseUtc(value);
   if (!d) return "";
-  const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} в ${time}`;
+  const p = partsIn(d, tz);
+  return `${p.day} ${MONTHS[p.month]}, ${p.time}`;
+}
+
+export function stamp(value: string | null | undefined, tz?: string): string {
+  const d = parseUtc(value);
+  if (!d) return "";
+  const p = partsIn(d, tz);
+  return `${p.day} ${MONTHS[p.month]} в ${p.time}`;
+}
+
+export function deviceTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  } catch {
+    return "";
+  }
+}
+
+/** Пометка, если часы школы не совпадают с часами телефона: «время школы, UTC+5». */
+export function schoolTimeNote(tz?: string): string {
+  if (!tz) return "";
+  const now = new Date();
+  if (partsIn(now, tz).time === partsIn(now).time) return "";
+  try {
+    const name = new Intl.DateTimeFormat("ru-RU", { timeZone: tz, timeZoneName: "shortOffset" })
+      .formatToParts(now).find((p) => p.type === "timeZoneName")?.value;
+    return name ? `время школы, ${name.replace("GMT", "UTC")}` : "время школы";
+  } catch {
+    return "время школы";
+  }
 }
 
 export function isPast(value: string | null | undefined): boolean {

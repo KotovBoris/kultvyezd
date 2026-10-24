@@ -102,6 +102,7 @@ class ClassCreate(BaseModel):
     school_number: str = ""
     teacher_name: str = ""
     teacher_phone: str = ""
+    timezone: str | None = None
     chat_id: int | None = None
     user_id: int | None = None
     students: list[StudentCreate] = Field(default_factory=list)
@@ -177,6 +178,7 @@ class ExcursionStats(BaseModel):
 class ExcursionOut(BaseModel):
     id: int
     class_id: int
+    timezone: str = "Europe/Moscow"
     title: str
     location_name: str
     address: str
@@ -245,6 +247,8 @@ class RemindResponse(BaseModel):
     targeted: int
     delivered: int
     recipients: list[str] = Field(default_factory=list)
+    skipped_quiet: int = 0   # у родителя ночь (21:00–08:00 по его времени)
+    skipped_recent: int = 0  # напоминали меньше 12 часов назад
 
 
 class LinkCodeOut(BaseModel):

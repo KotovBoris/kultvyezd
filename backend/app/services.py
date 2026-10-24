@@ -5,7 +5,10 @@ from datetime import datetime, timedelta
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from . import timeutil
+
 from .models import (
+    UserProfile,
     ConsentAudit,
     ConsentStatus,
     Excursion,
@@ -65,12 +68,9 @@ def student_parents(session: Session, student_id: int) -> list[ParentContact]:
     return list(session.exec(select(ParentContact).where(ParentContact.student_id == student_id)).all())
 
 
-MSK = timedelta(hours=3)
-
-
-def msk_stamp(value: datetime | None) -> str:
-    """Время в БД — UTC; людям показываем московское (школы региона живут по МСК)."""
-    return (value + MSK).strftime("%d.%m в %H:%M") if value else ""
+def local_stamp(value: datetime | None, tz: str | None) -> str:
+    """«24.10 в 18:05» по времени школы."""
+    return timeutil.stamp(value, tz)
 
 
 def normalize_phone(raw: str | None) -> str:
@@ -135,7 +135,7 @@ def apply_consent(
 
     def already() -> tuple[ExcursionParticipant, bool, str]:
         existing_by = participant.signed_by_name or "законный представитель"
-        when = msk_stamp(participant.signed_at) or "ранее"
+        when = local_stamp(participant.signed_at, excursion.timezone) or "ранее"
         if participant.consent_status == ConsentStatus.APPROVED:
             return participant, False, f"Согласие уже подписано ({existing_by}, {when})."
         return participant, False, f"Отказ уже записан ({existing_by}, {when})."
@@ -191,12 +191,8 @@ def apply_consent(
 def trip_started(excursion: Excursion, now: datetime | None = None) -> bool:
     """Выезд начался: наступило время сбора (по Москве). До этого ответ ещё можно поменять —
     например, если ребёнок заболел утром."""
-    if not excursion.event_date:
-        return False
-    now = now or datetime.utcnow()
-    start_time = excursion.gathering_time or datetime.max.time()
-    start_msk = datetime.combine(excursion.event_date, start_time)
-    return now + MSK >= start_msk
+    start = timeutil.starts_at_utc(excursion.event_date, excursion.gathering_time, excursion.timezone)
+    return start is not None and (now or datetime.utcnow()) >= start
 
 
 def can_change_answer(session: Session, participant: ExcursionParticipant, excursion: Excursion,
@@ -385,13 +381,22 @@ def unactivated_children(session: Session, excursion: Excursion) -> list[str]:
 
 
 FRESH_INVITE = timedelta(hours=6)
-QUIET_HOURS_MSK = (21, 8)  # с 21:00 до 08:00 по Москве родителей не беспокоим
+QUIET_HOURS = (21, 8)  # с 21:00 до 08:00 по местному времени родителей не беспокоим
 
 
-def in_quiet_hours(now: datetime) -> bool:
-    hour = (now + MSK).hour
-    start, end = QUIET_HOURS_MSK
+def in_quiet_hours(now: datetime, tz: str | None = None) -> bool:
+    hour = timeutil.now_local(tz, now).hour
+    start, end = QUIET_HOURS
     return hour >= start or hour < end
+
+
+def user_timezone(session: Session, max_user_id: int | None, fallback: str | None) -> str:
+    """Пояс телефона родителя (если открывал мини-приложение), иначе пояс школы."""
+    if max_user_id:
+        profile = session.exec(select(UserProfile).where(UserProfile.max_user_id == max_user_id)).first()
+        if profile and profile.timezone:
+            return profile.timezone
+    return fallback or timeutil.DEFAULT_TZ
 
 
 def due_auto_reminders(session: Session, now: datetime | None = None) -> list[dict]:
@@ -400,11 +405,9 @@ def due_auto_reminders(session: Session, now: datetime | None = None) -> list[di
     Правила, чтобы не превращать бота в спам:
     — первые 6 часов после приглашения не напоминаем (оно только что пришло);
     — из подходящих ступеней шлём только самую срочную, без пачки сообщений;
-    — с 21:00 до 08:00 по Москве не напоминаем вовсе.
+    — с 21:00 до 08:00 по местному времени родителя не напоминаем вовсе.
     """
     now = now or datetime.utcnow()
-    if in_quiet_hours(now):
-        return []
     due: list[dict] = []
     excursions = session.exec(
         select(Excursion).where(Excursion.status == ExcursionStatus.VOTING, Excursion.deadline != None)  # noqa: E711
@@ -419,6 +422,8 @@ def due_auto_reminders(session: Session, now: datetime | None = None) -> list[di
         for target in remind_targets(session, exc):
             if not target["max_user_id"]:
                 continue
+            if in_quiet_hours(now, user_timezone(session, target["max_user_id"], exc.timezone)):
+                continue
             already = session.exec(
                 select(ReminderLog).where(
                     ReminderLog.excursion_id == exc.id,
@@ -430,6 +435,17 @@ def due_auto_reminders(session: Session, now: datetime | None = None) -> list[di
                 continue
             due.append({"excursion": exc, "kind": kind, **target})
     return due
+
+
+MANUAL_REMINDER = "MANUAL"
+MANUAL_REMINDER_GAP = timedelta(hours=12)
+
+
+def recently_reminded(session: Session, excursion_id: int, student_id: int, now: datetime) -> bool:
+    """Любое напоминание этому родителю за последние 12 часов — повторно не шлём."""
+    return session.exec(select(ReminderLog).where(
+        ReminderLog.excursion_id == excursion_id, ReminderLog.student_id == student_id,
+        ReminderLog.sent_at >= now - MANUAL_REMINDER_GAP)).first() is not None
 
 
 def mark_reminder_sent(session: Session, excursion_id: int, student_id: int, kind: str) -> None:
@@ -541,6 +557,7 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
                     "pushkin_ok": pushkin_for(student, exc),
                     "can_change": can_change_answer(session, p, exc, max_user_id),
                     "started": trip_started(exc),
+                    "timezone": exc.timezone or timeutil.DEFAULT_TZ,
                     "cancelled": exc.cancelled,
                     "status": exc.status,
                     "traffic_light": compute_traffic_light(p).value,

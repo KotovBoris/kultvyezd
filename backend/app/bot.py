@@ -5,7 +5,7 @@ from datetime import datetime
 
 from sqlmodel import Session, select
 
-from . import services
+from . import services, timeutil
 from .auth import strict_auth, upsert_profile_from_bot
 from .config import get_settings
 from .db import engine
@@ -47,11 +47,9 @@ def human_date(value) -> str:
     return f"{WEEKDAYS[value.weekday()]}, {value.day} {MONTHS[value.month - 1]}"
 
 
-def human_deadline(value: datetime | None) -> str:
-    if not value:
-        return ""
-    value = value + services.MSK
-    return f"{value.day} {MONTHS[value.month - 1]}, {value:%H:%M}"
+def human_deadline(value: datetime | None, tz: str | None = None) -> str:
+    """Срок ответа по времени школы."""
+    return timeutil.human_deadline(value, tz)
 
 
 def is_female(full_name: str) -> bool:
@@ -294,7 +292,7 @@ class BotService:
         head = f"{student_name}{f' ({class_title})' if class_title else ''}"
 
         if participant.consent_status == ConsentStatus.PENDING:
-            deadline = human_deadline(excursion.deadline)
+            deadline = human_deadline(excursion.deadline, excursion.timezone)
             school = f", {klass.school_name}," if klass and klass.school_name else ""
             keyboard = inline_keyboard([
                 [callback_button(f"✅ Да, {name} пойдёт", f"consent:{excursion.id}:{participant.student_id}:APPROVED")],
@@ -314,7 +312,7 @@ class BotService:
             ])
             return text, [keyboard]
 
-        when = services.msk_stamp(participant.signed_at)
+        when = services.local_stamp(participant.signed_at, excursion.timezone)
         can_change = not services.trip_started(excursion)
         change_btn = [callback_button("Изменить ответ", f"change:{excursion.id}:{participant.student_id}")]
         if participant.consent_status == ConsentStatus.REJECTED:
@@ -659,7 +657,7 @@ class BotService:
             excursion = session.get(Excursion, excursion_id)
             if not excursion:
                 return 0
-            now = (datetime.utcnow() + services.MSK).strftime("%H:%M")
+            now = timeutil.now_local(excursion.timezone).strftime("%H:%M")
             for student, parent, part in self._going_parents(session, excursion):
                 if part.consent_status != ConsentStatus.APPROVED:
                     continue
@@ -735,7 +733,7 @@ class BotService:
         else:
             verdict = "записан отказ"
         by = participant.signed_by_name or "законный представитель"
-        when = services.msk_stamp(participant.signed_at)
+        when = services.local_stamp(participant.signed_at, excursion.timezone)
         text = f"{student.full_name}, выезд {quoted(excursion.title)}: {verdict} ({by}{', ' + when if when else ''})."
         for parent in others:
             if parent.is_virtual:
@@ -799,23 +797,34 @@ class BotService:
             delivered = delivered or result is not None
         return delivered
 
-    async def remind(self, excursion: Excursion, session: Session) -> tuple[int, list[str]]:
+    async def remind(self, excursion: Excursion, session: Session,
+                     now: datetime | None = None) -> tuple[int, list[str], dict]:
+        """Кнопка учителя «Напомнить»: не ночью по времени родителя и не чаще раза в 12 часов."""
+        skipped = {"quiet": 0, "recent": 0}
         if excursion.cancelled:
-            return 0, []
+            return 0, [], skipped
         targets = services.remind_targets(session, excursion)
         delivered: list[str] = []
+        now = now or datetime.utcnow()
         for t in targets:
             if not (t.get("max_user_id") and self.client.enabled):
                 continue
             participant = services.get_participant(session, excursion.id, t["student_id"])
             if not participant:
                 continue
+            if services.in_quiet_hours(now, services.user_timezone(session, t["max_user_id"], excursion.timezone)):
+                skipped["quiet"] += 1
+                continue
+            if services.recently_reminded(session, excursion.id, t["student_id"], now):
+                skipped["recent"] += 1
+                continue
             text, keyboard = self._parent_card(excursion, t["student_name"], participant)
             result = await self.client.send_message(user_id=t["max_user_id"], text="Напоминание\n\n" + text,
                                                     attachments=keyboard)
             if result is not None:
                 delivered.append(t["student_name"])
-        return len(targets), delivered
+                services.mark_reminder_sent(session, excursion.id, t["student_id"], services.MANUAL_REMINDER)
+        return len(targets), delivered, skipped
 
     async def send_auto_reminder(self, target: dict) -> bool:
         if not self.client.enabled:
@@ -841,7 +850,7 @@ class BotService:
     async def publish_to_chat(self, excursion: Excursion, chat_id: int) -> dict | None:
         lines = ["Новый выезд класса:", *self._trip_lines(excursion)]
         if excursion.deadline:
-            lines.append(f"Ответить до: {human_deadline(excursion.deadline)}")
+            lines.append(f"Ответить до: {human_deadline(excursion.deadline, excursion.timezone)}")
         lines.append("")
         lines.append("Родители, ответьте одной кнопкой в ClassGo.")
         attachments = [inline_keyboard([[app_button("Ответить", f"trip_{excursion.id}")]])]

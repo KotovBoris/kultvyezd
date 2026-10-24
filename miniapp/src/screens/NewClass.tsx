@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@maxhub/max-ui";
 import { api } from "../api";
 import { refreshMe } from "../App";
-import { plural } from "../format";
+import { deviceTimeZone, plural } from "../format";
 import { haptic, setClosingConfirmation } from "../max";
 import { errorText, replace, toast, useAppState } from "../store";
 import { Card, Field, Hero, Icon, Notice, Page, Section, Segmented } from "../ui";
@@ -59,6 +59,7 @@ export default function NewClass() {
           school_name: school.trim(),
           teacher_name: teacher.trim(),
           teacher_phone: phone.trim(),
+          timezone: deviceTimeZone(),
         });
         classId = r.class_id;
         count = r.students_created;
@@ -69,6 +70,7 @@ export default function NewClass() {
           school_name: school.trim(),
           teacher_name: teacher.trim(),
           teacher_phone: phone.trim(),
+          timezone: deviceTimeZone(),
           students,
         });
         classId = r.id;

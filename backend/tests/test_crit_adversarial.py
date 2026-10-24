@@ -125,7 +125,8 @@ async def test_CRIT_9_remind_delivers_to_linked() -> None:
                 s.add(p)
         s.commit()
         fake = Fake()
-        targeted, delivered = await BotService(client=fake).remind(exc, s)
+        noon = datetime.utcnow().replace(hour=9, minute=0)  # полдень по Москве, не тихие часы
+        targeted, delivered, _skipped = await BotService(client=fake).remind(exc, s, now=noon)
     assert targeted == 2 and len(delivered) == 1 and len(fake.sent) == 1
 
 

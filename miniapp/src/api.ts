@@ -1,3 +1,4 @@
+import { deviceTimeZone } from "./format";
 import { initData, webDemoUserId } from "./max";
 
 const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
@@ -84,6 +85,7 @@ export interface TripStats {
 export interface Excursion {
   id: number;
   class_id: number;
+  timezone: string;
   title: string;
   location_name: string;
   address: string;
@@ -148,6 +150,7 @@ export interface ConsentResponse {
 
 export interface ParentTrip {
   excursion_id: number;
+  timezone: string;
   title: string;
   location_name: string;
   address: string;
@@ -241,6 +244,8 @@ function headers(json = true): Record<string, string> {
   if (json) h["Content-Type"] = "application/json";
   const data = initData();
   if (data) h["X-Max-Init-Data"] = data;
+  const tz = deviceTimeZone();
+  if (tz) h["X-Timezone"] = tz; // тихие часы напоминаний — по часам телефона родителя
   return h;
 }
 
@@ -313,7 +318,9 @@ export const api = {
   createTrip: (payload: Record<string, unknown>) => post<Excursion>("/api/v1/excursions", payload),
   dashboard: (id: number) => req<Dashboard>(`/api/v1/excursions/${id}/dashboard`),
   remind: (id: number) =>
-    post<{ targeted: number; delivered: number; recipients: string[] }>(`/api/v1/excursions/${id}/remind-unconfirmed`),
+    post<{ targeted: number; delivered: number; recipients: string[]; skipped_quiet: number; skipped_recent: number }>(
+      `/api/v1/excursions/${id}/remind-unconfirmed`,
+    ),
   sendDocuments: (id: number) => post<{ delivered: boolean; message: string }>(`/api/v1/excursions/${id}/send-documents`),
   /** Короткие подписанные ссылки на PDF/DOCX: MAX скачивает файл без заголовков авторизации. */
   orderLinks: (id: number) =>

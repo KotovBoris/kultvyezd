@@ -145,7 +145,8 @@ export default function NewTrip({ classId }: { classId?: number }) {
     setBusy(true);
     setError(null);
     try {
-      const deadline = new Date(`${deadlineDate}T${deadlineTime || "18:00"}:00`);
+      // Срок — по часам школы: сервер переводит его в UTC по поясу класса.
+      const deadline = `${deadlineDate}T${deadlineTime || "18:00"}:00`;
       const common = {
         class_id: klass.id,
         event_date: date,
@@ -154,7 +155,7 @@ export default function NewTrip({ classId }: { classId?: number }) {
         meeting_point: meeting.trim() || "у главного входа школы",
         escorts: escorts.trim(),
         transport: transportText,
-        deadline: deadline.toISOString(),
+        deadline,
       };
       const trip = await api.createTrip(
         custom

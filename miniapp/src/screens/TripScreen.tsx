@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@maxhub/max-ui";
 import { api, type Dashboard, type Invite, type ParticipantRow } from "../api";
-import { dayLong, deadlineText, formatPhone, initials, isPast, money, parseDay, plural, quote, shortName, stamp } from "../format";
+import { dayLong, deadlineText, formatPhone, initials, isoDate, isPast, money, parseDay, plural, quote, schoolTimeNote, shortName, stamp } from "../format";
 import { downloadFile, haptic, isInsideMax, shareToChat, telHref } from "../max";
 import { errorText, toast } from "../store";
 import {
@@ -43,28 +43,31 @@ function rowStatus(p: ParticipantRow): string {
   return "Отпускают";
 }
 
-function rowSubtitle(p: ParticipantRow): string {
+function rowSubtitle(p: ParticipantRow, tz: string): string {
   const role = p.parent_role && p.parent_role !== "Законный представитель" ? p.parent_role : "Родитель";
   if (p.consent_status === "PENDING") {
     return p.bot_activated ? `${role} · приглашение в MAX` : `${role} · не подключён к MAX`;
   }
   const manual = p.signed_source === "paper";
-  const when = shortStamp(p.signed_at);
+  const when = shortStamp(p.signed_at, tz);
   if (p.consent_status === "REJECTED") return `${p.rejection_reason || "Без причины"} · ${when}`;
   return `${manual ? "Бумажное согласие" : role} · ${when}`;
 }
 
-/** День выезда наступил (по дате телефона учителя). */
-function tripDayReached(eventDate: string | null): boolean {
-  const day = parseDay(eventDate);
-  if (!day) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return day.getTime() <= today.getTime();
+/** День выезда наступил — по календарю школы. */
+function tripDayReached(eventDate: string | null, tz: string): boolean {
+  if (!eventDate) return false;
+  let today: string;
+  try {
+    today = new Intl.DateTimeFormat("en-CA", { timeZone: tz || undefined }).format(new Date());
+  } catch {
+    today = isoDate(new Date());
+  }
+  return eventDate.slice(0, 10) <= today;
 }
 
-function shortStamp(value: string | null): string {
-  return stamp(value).replace(/ в /, ", ");
+function shortStamp(value: string | null, tz: string): string {
+  return stamp(value, tz).replace(/ в /, ", ");
 }
 
 export default function TripScreen({ id }: { id: number }) {
@@ -140,14 +143,15 @@ export default function TripScreen({ id }: { id: number }) {
     try {
       const r = await api.remind(id);
       haptic.ok();
-      const rest = r.targeted - r.delivered;
-      toast(
-        r.delivered
-          ? `Напомнили в MAX ${r.delivered} ${plural(r.delivered, "родителю", "родителям", "родителям")}.` +
-              (rest > 0 ? ` Ещё ${rest} без MAX — отправьте им ссылку или дайте бумажный бланк.` : "")
-          : "Кто не ответил, ещё не подключён к MAX. Отправьте ссылку в чат класса.",
-        r.delivered ? "ok" : "info",
-      );
+      const held = r.skipped_quiet + r.skipped_recent;
+      const rest = r.targeted - r.delivered - held;
+      const parts: string[] = [];
+      if (r.delivered) parts.push(`Напомнили в MAX ${r.delivered} ${plural(r.delivered, "родителю", "родителям", "родителям")}.`);
+      if (r.skipped_quiet) parts.push(`${r.skipped_quiet} — сейчас ночь у родителя, напомните после 8:00.`);
+      if (r.skipped_recent) parts.push(`${r.skipped_recent} — уже напоминали за последние 12 часов.`);
+      if (rest > 0) parts.push(`Ещё ${rest} без MAX — отправьте им ссылку или дайте бумажный бланк.`);
+      toast(parts.join(" ") || "Кто не ответил, ещё не подключён к MAX. Отправьте ссылку в чат класса.",
+        r.delivered ? "ok" : "info");
     } catch (e) {
       toast(errorText(e), "error");
     } finally {
@@ -241,7 +245,8 @@ export default function TripScreen({ id }: { id: number }) {
         {exc.deadline && (
           <Fact icon="calendar">
             {isPast(exc.deadline) ? "Срок ответа прошёл: " : "Ответить до "}
-            <b>{deadlineText(exc.deadline)}</b>
+            <b>{deadlineText(exc.deadline, exc.timezone)}</b>
+            {schoolTimeNote(exc.timezone) && <span className="cg-muted"> ({schoolTimeNote(exc.timezone)})</span>}
           </Fact>
         )}
       </Card>
@@ -274,9 +279,9 @@ export default function TripScreen({ id }: { id: number }) {
         </p>
       )}
 
-      <StudentGroup title="Ещё не ответили" rows={groups.waiting} onOpen={setSelected} />
-      <StudentGroup title="Отпускают" rows={groups.going} onOpen={setSelected} />
-      <StudentGroup title="Не смогут" rows={groups.notGoing} onOpen={setSelected} />
+      <StudentGroup title="Ещё не ответили" rows={groups.waiting} tz={exc.timezone} onOpen={setSelected} />
+      <StudentGroup title="Отпускают" rows={groups.going} tz={exc.timezone} onOpen={setSelected} />
+      <StudentGroup title="Не смогут" rows={groups.notGoing} tz={exc.timezone} onOpen={setSelected} />
 
       <Section title="Документы для директора">
         <Card>
@@ -310,12 +315,13 @@ export default function TripScreen({ id }: { id: number }) {
         </Card>
       </Section>
 
-      {!exc.cancelled && stats.going > 0 && (exc.is_demo || tripDayReached(exc.event_date) || exc.departed_at) && (
+      {!exc.cancelled && stats.going > 0 && (exc.is_demo || tripDayReached(exc.event_date, exc.timezone) || exc.departed_at) && (
         <TripDay
           excursionId={id}
           going={groups.going}
           departedAt={exc.departed_at}
           returnedAt={exc.returned_at}
+          tz={exc.timezone}
           onChanged={() => void load()}
         />
       )}
@@ -324,6 +330,7 @@ export default function TripScreen({ id }: { id: number }) {
 
       <StudentSheet
         excursionId={id}
+        tz={exc.timezone}
         row={selected}
         onClose={() => setSelected(null)}
         onChanged={() => void load()}
@@ -344,10 +351,12 @@ function Fact({ icon, children }: { icon: Parameters<typeof Icon>[0]["name"]; ch
 function StudentGroup({
   title,
   rows,
+  tz,
   onOpen,
 }: {
   title: string;
   rows: ParticipantRow[];
+  tz: string;
   onOpen: (p: ParticipantRow) => void;
 }) {
   if (!rows.length) return null;
@@ -361,7 +370,7 @@ function StudentGroup({
               <Avatar text={initials(p.full_name)} tone={tone} />
               <span className="cg-person-text">
                 <b>{shortName(p.full_name)}</b>
-                <span className="cg-muted">{rowSubtitle(p)}</span>
+                <span className="cg-muted">{rowSubtitle(p, tz)}</span>
               </span>
               {p.present === false && <Status tone="notgoing">Нет на сборе</Status>}
               {p.present === true && <Status tone="going">На месте</Status>}
@@ -376,11 +385,13 @@ function StudentGroup({
 
 function StudentSheet({
   excursionId,
+  tz,
   row,
   onClose,
   onChanged,
 }: {
   excursionId: number;
+  tz: string;
   row: ParticipantRow | null;
   onClose: () => void;
   onChanged: () => void;
@@ -449,7 +460,7 @@ function StudentSheet({
               {row.consent_status === "APPROVED" ? "Да, пойдёт" : `Нет: ${row.rejection_reason || "без причины"}`}
               <br />
               <span className="cg-muted">
-                {stamp(row.signed_at)} · {SOURCE_LABEL[row.signed_source ?? "api"] ?? "в ClassGo"}
+                {stamp(row.signed_at, tz)} · {SOURCE_LABEL[row.signed_source ?? "api"] ?? "в ClassGo"}
               </span>
             </dd>
             {row.signed_by_max_user_id && (
@@ -491,8 +502,8 @@ function StudentSheet({
   );
 }
 
-function timeOf(value: string | null): string {
-  return stamp(value).split(" в ")[1] ?? "";
+function timeOf(value: string | null, tz: string): string {
+  return stamp(value, tz).split(" в ")[1] ?? "";
 }
 
 function TripDay({
@@ -500,12 +511,14 @@ function TripDay({
   going,
   departedAt,
   returnedAt,
+  tz,
   onChanged,
 }: {
   excursionId: number;
   going: ParticipantRow[];
   departedAt: string | null;
   returnedAt: string | null;
+  tz: string;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -572,11 +585,11 @@ function TripDay({
         <div className="cg-row-buttons">
           <Button size="medium" variant={departedAt ? "secondary" : "primary"} loading={busy === "departed"}
             disabled={Boolean(departedAt)} onClick={() => void milestone("departed")}>
-            {departedAt ? `Выехали в ${timeOf(departedAt)}` : "Группа выехала"}
+            {departedAt ? `Выехали в ${timeOf(departedAt, tz)}` : "Группа выехала"}
           </Button>
           <Button size="medium" variant="secondary" loading={busy === "returned"}
             disabled={!departedAt || Boolean(returnedAt)} onClick={() => void milestone("returned")}>
-            {returnedAt ? `Вернулись в ${timeOf(returnedAt)}` : "Группа вернулась"}
+            {returnedAt ? `Вернулись в ${timeOf(returnedAt, tz)}` : "Группа вернулась"}
           </Button>
         </div>
       </Card>

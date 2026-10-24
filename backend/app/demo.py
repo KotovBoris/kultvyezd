@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 
 from sqlmodel import Session, select
 
-from . import services
+from . import services, timeutil
 from .config import get_settings
 from .models import (
     AccessRole,
@@ -115,12 +115,12 @@ def _pick_event(session: Session) -> CultureEvent | None:
 def _plausible_answer_time(now: datetime) -> datetime:
     """Время «уже пришедшего» ответа: недавно и не ночью по Москве (ответ в 03:46 выглядит фальшиво)."""
     at = now - timedelta(minutes=random.randint(15, 240))
-    hour = (at + services.MSK).hour
+    hour = timeutil.to_local(at, timeutil.DEFAULT_TZ).hour
     if hour < 7 or hour >= 23:
-        evening = (at + services.MSK).replace(hour=19, minute=0, second=0, microsecond=0)
+        evening = timeutil.to_local(at, timeutil.DEFAULT_TZ).replace(hour=19, minute=0, second=0, microsecond=0)
         if hour < 7:
             evening -= timedelta(days=1)
-        at = evening - services.MSK + timedelta(minutes=random.randint(0, 150))
+        at = timeutil.local_to_utc(evening, timeutil.DEFAULT_TZ) + timedelta(minutes=random.randint(0, 150))
     return at
 
 

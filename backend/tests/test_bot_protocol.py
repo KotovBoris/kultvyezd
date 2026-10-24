@@ -95,7 +95,7 @@ async def test_remind_sends_only_to_linked_parents() -> None:
         excursion = session.exec(select(Excursion)).first()
         fake = FakeMaxClient()
         svc = BotService(client=fake)
-        targeted, delivered = await svc.remind(excursion, session)
+        targeted, delivered, _skipped = await svc.remind(excursion, session)
         assert targeted >= 0
         # отправляем только тем, у кого есть max_user_id
         for call in fake.sent:

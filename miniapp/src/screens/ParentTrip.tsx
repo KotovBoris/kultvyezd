@@ -128,7 +128,7 @@ export function ParentTripView({
               <span className={late ? "cg-late" : "cg-muted"}>
                 {late
                   ? "Срок прошёл, но ответить ещё можно."
-                  : `Ответьте до ${deadlineText(trip.deadline)}.`}
+                  : `Ответьте до ${deadlineText(trip.deadline, trip.timezone)}.`}
               </span>
             )}
           </div>
@@ -159,7 +159,7 @@ export function ParentTripView({
           <Icon name="check" size={22} />
           <div>
             <b>Готово: {name} идёт на выезд.</b>
-            <span>Подпись записана {stamp(trip.signed_at)}. Учитель уже видит ответ.</span>
+            <span>Подпись записана {stamp(trip.signed_at, trip.timezone)}. Учитель уже видит ответ.</span>
           </div>
         </div>
       )}
@@ -170,7 +170,7 @@ export function ParentTripView({
           <div>
             <b>Вы ответили: {name} не пойдёт.</b>
             <span>
-              {trip.rejection_reason || "Без причины"} · {stamp(trip.signed_at)}. Учитель уже видит ответ.
+              {trip.rejection_reason || "Без причины"} · {stamp(trip.signed_at, trip.timezone)}. Учитель уже видит ответ.
             </span>
           </div>
         </div>

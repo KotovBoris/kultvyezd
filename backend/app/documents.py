@@ -30,6 +30,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlmodel import Session, select
 
+from . import timeutil
 from .models import (
     ConsentAudit,
     ConsentStatus,
@@ -42,7 +43,6 @@ from .models import (
 
 MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
           "сентября", "октября", "ноября", "декабря"]
-MSK = timedelta(hours=3)
 
 # Способы ответа. Только ПЭП и бумага дают письменное согласие (прил. 2 к 06-836, п. 2.3).
 METHOD = {
@@ -111,6 +111,7 @@ class Pack:
     basis: str
     deadline: str
     generated: str
+    tz_label: str
     doc_no: str
     invite_hash: str
     going: list[Row] = field(default_factory=list)
@@ -131,10 +132,11 @@ def _basis(text: str, class_title: str) -> str:
     return text
 
 
-def _msk(value: datetime | None, seconds: bool = False) -> str:
+def _msk(value: datetime | None, seconds: bool = False, tz: str | None = None) -> str:
+    """Время по часам школы (в БД — UTC)."""
     if not value:
         return "—"
-    return (value + MSK).strftime("%d.%m.%Y %H:%M:%S" if seconds else "%d.%m.%Y %H:%M")
+    return timeutil.to_local(value, tz).strftime("%d.%m.%Y %H:%M:%S" if seconds else "%d.%m.%Y %H:%M")
 
 
 def _mask(phone: str) -> str:
@@ -189,8 +191,9 @@ def _collect(session: Session, excursion: Excursion) -> Pack:
         transport=transport,
         bus="автобус" in transport.lower(),
         basis=_basis(excursion.order_basis, class_title),
-        deadline=_msk(excursion.deadline),
-        generated=_msk(datetime.utcnow(), seconds=True),
+        deadline=_msk(excursion.deadline, tz=excursion.timezone),
+        generated=_msk(datetime.utcnow(), seconds=True, tz=excursion.timezone),
+        tz_label=timeutil.label(excursion.timezone),
         doc_no=f"CG-{class_title}-{event_date:%Y%m%d}-{excursion.id:03d}" if event_date else f"CG-{excursion.id:03d}",
         invite_hash=invitation_hash(excursion),
     )
@@ -200,7 +203,7 @@ def _collect(session: Session, excursion: Excursion) -> Pack:
         parent = next((x for x in parents if x.max_user_id), parents[0] if parents else None)
         role = (parent.role if parent else "") or "законный представитель"
         history = " → ".join(
-            f"{AUDIT_LABEL.get(a.action, a.action)} {_msk(a.created_at, seconds=True)[11:]}"
+            f"{AUDIT_LABEL.get(a.action, a.action)} {_msk(a.created_at, seconds=True, tz=excursion.timezone)[11:]}"
             for a in audits if a.student_id == p.student_id and a.action in AUDIT_LABEL
         )
         row = Row(
@@ -216,7 +219,7 @@ def _collect(session: Session, excursion: Excursion) -> Pack:
             signer=p.signed_by_name or "",
             method=METHOD.get(p.signed_source or "", "ПЭП — ClassGo"),
             method_key=p.signed_source,
-            signed_at=_msk(p.signed_at, seconds=True),
+            signed_at=_msk(p.signed_at, seconds=True, tz=excursion.timezone),
             max_id=str(p.signed_by_max_user_id) if p.signed_by_max_user_id else "—",
             history=history or "изменений нет",
         )
@@ -460,9 +463,9 @@ def build_order_pdf(session: Session, excursion: Excursion) -> bytes:
     story += [
         _appx(2, s),
         Paragraph("Реестр согласий законных представителей", s["h2"]),
-        Paragraph(f"Сведения по состоянию на {pack.generated} МСК (срок приёма ответов — до {pack.deadline}). "
+        Paragraph(f"Сведения по состоянию на {pack.generated} (срок приёма ответов — до {pack.deadline}). "
                   f"Документ {pack.doc_no}. Текст приглашения: SHA-256 {pack.invite_hash[:16]}… "
-                  "(полный хеш — в журнале ClassGo). Время — сервера ClassGo, МСК (UTC+3).", s["small"]),
+                  "(полный хеш — в журнале ClassGo). Время — по часам школы ({pack.tz_label}).", s["small"]),
         Spacer(1, 3 * mm),
     ]
     data = [["№", "Обучающийся", "Ответ", "Подписант", "Способ", "Время ответа", "История"]]
@@ -628,11 +631,11 @@ def build_order_docx(session: Session, excursion: Excursion) -> bytes:
     _page_break(doc)
     para("Приложение 2 к приказу от «___» ________ 20__ г. № ____", align=WD_ALIGN_PARAGRAPH.RIGHT)
     para("Реестр согласий законных представителей", bold=True)
-    para(f"Сведения по состоянию на {pack.generated} МСК (срок приёма ответов — до {pack.deadline}). "
+    para(f"Сведения по состоянию на {pack.generated} (срок приёма ответов — до {pack.deadline}). "
          f"Документ {pack.doc_no}. Текст приглашения: SHA-256 {pack.invite_hash}.")
     rows = ([(r, "Согласие") for r in pack.going + pack.oral]
             + [(r, f"Отказ: {r.reason or 'без причины'}") for r in pack.not_going])
-    _docx_table(doc, ["№", "Обучающийся", "Ответ", "Подписант", "MAX ID", "Способ", "Время ответа (МСК)", "История"],
+    _docx_table(doc, ["№", "Обучающийся", "Ответ", "Подписант", "MAX ID", "Способ", "Время ответа", "История"],
                 [[i, r.name, verdict, r.signer or "—", r.max_id, r.method, r.signed_at, r.history]
                  for i, (r, verdict) in enumerate(rows, 1)])
     if pack.waiting:
