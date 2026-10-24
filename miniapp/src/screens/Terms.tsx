@@ -3,13 +3,14 @@ import { Button } from "@maxhub/max-ui";
 import { api, type ParentChild } from "../api";
 import { refreshMe } from "../App";
 import { errorText, setState, toast, useAppState } from "../store";
-import { Card, Hero, Page } from "../ui";
+import { Card, Confirm, Hero, Page } from "../ui";
 
 /** Один раз перед первым ответом: соглашение о ПЭП (63-ФЗ) и отдельное согласие на ПДн (152-ФЗ). */
 export function Terms({ children }: { children: ParentChild[] }) {
   const { me } = useAppState();
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
+  const [askPaper, setAskPaper] = useState(false);
   const school = children[0]?.school_name || "школа";
   const kids = children.map((c) => c.student_name).join(", ");
 
@@ -36,6 +37,7 @@ export function Terms({ children }: { children: ParentChild[] }) {
     try {
       await api.revoke();
       await refreshMe("parent");
+      setAskPaper(false);
       toast("Хорошо: бумажный бланк согласия передаст классный руководитель.", "info");
     } catch (e) {
       toast(errorText(e), "error");
@@ -51,12 +53,18 @@ export function Terms({ children }: { children: ParentChild[] }) {
           <Button size="large" stretched loading={busy} onClick={() => (step === 1 ? next() : void accept())}>
             {step === 1 ? "Принимаю" : "Даю согласие"}
           </Button>
-          <button type="button" className="cg-link cg-center-link" disabled={busy} onClick={() => void paper()}>
+          <button type="button" className="cg-link cg-center-link" disabled={busy} onClick={() => setAskPaper(true)}>
             {step === 1 ? "Отвечать на бумаге" : "Не даю — отвечу на бумаге"}
           </button>
         </div>
       }
     >
+      <Confirm open={askPaper} title="Отвечать на бумаге?" yes="Да, отвечу на бумаге" no="Вернуться" busy={busy}
+        onYes={() => void paper()} onClose={() => setAskPaper(false)}>
+        <p>Приглашения от школы в ClassGo приходить перестанут, ответ кнопкой будет недоступен.</p>
+        <p>Бланк согласия даст классный руководитель — его нужно заполнить и вернуть до срока.</p>
+        <p className="cg-muted">Передумаете — откройте ссылку класса ещё раз.</p>
+      </Confirm>
       <Hero overline={`Шаг ${step} из 2 · один раз перед первым ответом`}
         title={step === 1 ? "Соглашение об электронной подписи" : "Согласие на обработку данных"} />
       {step === 1 ? (

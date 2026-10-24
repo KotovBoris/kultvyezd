@@ -773,6 +773,8 @@ async def create_excursion(payload: ExcursionCreate, caller: Caller = Depends(ge
             ticket_status=TicketStatus.NOT_REQUIRED if (exc.ticket_price or 0) == 0 else TicketStatus.WAITING_PAYMENT,
         ))
     session.commit()
+    if klass.is_demo:
+        demo.retire_previous_trips(session, klass, exc.id)
     demo.schedule_virtual_answers(session, exc)
     if payload.notify_parents and settings.bot_enabled:
         try:
@@ -1314,8 +1316,9 @@ async def _join_demo_class(session: Session, klass: SchoolClass, caller: Caller)
     if settings.bot_enabled:
         bot = BotService()
         try:
-            for exc in session.exec(select(Excursion).where(Excursion.class_id == klass.id)).all():
-                await bot.invite_one(exc.id, student.id, caller.user_id)
+            trip = demo.active_trip(session, klass)
+            if trip:
+                await bot.invite_one(trip.id, student.id, caller.user_id)
             await bot.notify_owner_joined(klass, name or "Новый родитель", student.full_name)
         except Exception:  # noqa: BLE001
             log.warning("Не удалось отправить приглашение новому родителю демо-класса %s", klass.id)
@@ -1440,8 +1443,11 @@ async def parent_join(payload: JoinRequest, caller: Caller = Depends(get_caller)
             class_title=klass.title if klass else None,
         )
     names = []
+    newly_linked: list[int] = []
     profile = remember_profile(session, caller)
     for parent in matches:
+        if parent.max_user_id != caller.user_id:
+            newly_linked.append(parent.student_id)
         parent.max_user_id = caller.user_id
         parent.confirmed = True
         if profile and profile.display_name and not parent.full_name:
@@ -1454,6 +1460,19 @@ async def parent_join(payload: JoinRequest, caller: Caller = Depends(get_caller)
         profile.role = "parent"
         session.add(profile)
     session.commit()
+    if newly_linked and settings.bot_enabled:
+        # Рассылка по выездам ушла до подключения — догоняем приглашения по открытым выездам.
+        bot = BotService()
+        for sid in newly_linked:
+            student = session.get(Student, sid)
+            if not student:
+                continue
+            for exc in session.exec(select(Excursion).where(Excursion.class_id == student.class_id,
+                                                            Excursion.cancelled == False)).all():  # noqa: E712
+                try:
+                    await bot.invite_one(exc.id, sid, caller.user_id)
+                except Exception:  # noqa: BLE001
+                    log.warning("Не удалось отправить приглашение по выезду %s", exc.id)
     return JoinOut(status="linked", message="Готово: вы подключены к классу.", children=names,
                    class_title=klass.title if klass else None)
 

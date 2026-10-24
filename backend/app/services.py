@@ -534,9 +534,11 @@ def parent_context(session: Session, max_user_id: int) -> list[dict]:
         ).all()
         klass = session.get(SchoolClass, student.class_id)
         items = []
+        newest = max((e.id for e in excursions), default=0)
         for exc in excursions:
             p = get_participant(session, exc.id, student.id)
-            if not p:
+            # В демо новый выезд закрывает прежний пример без рассылки — его родителю не показываем.
+            if not p or (exc.cancelled and klass and klass.is_demo and exc.id != newest):
                 continue
             items.append(
                 {

@@ -239,10 +239,11 @@ class BotService:
             if not child["confirmed"]:
                 await self._ask_link_confirmation(chat_id, user_id, child["student_id"])
                 continue
-            if not child["excursions"]:
-                await self._reply(chat_id, user_id, f"{child['student_name']}: выездов пока нет.")
+            upcoming = [e for e in child["excursions"] if not e["cancelled"] and not e["started"]]
+            if not upcoming:
+                await self._reply(chat_id, user_id, f"{child['student_name']}: новых выездов нет.")
                 continue
-            for item in child["excursions"]:
+            for item in upcoming:
                 with Session(engine) as session:
                     excursion = session.get(Excursion, item["excursion_id"])
                     participant = services.get_participant(session, item["excursion_id"], child["student_id"])
@@ -254,7 +255,9 @@ class BotService:
     # ------------------------------------------------------------------ карточки
     def _trip_lines(self, excursion: Excursion, student: Student | None = None) -> list[str]:
         """Что, когда, деньги — коротко и словами, без канцелярита."""
-        lines = [f"{quoted(excursion.title)} — {excursion.location_name}"]
+        lines = [quoted(excursion.title)]
+        if excursion.location_name:
+            lines.append(f"Где: {excursion.location_name}")
         when = human_date(excursion.event_date)
         if excursion.gathering_time:
             when += f", сбор в {excursion.gathering_time:%H:%M} {excursion.meeting_point}"
@@ -386,7 +389,8 @@ class BotService:
             return
 
         # Кнопки по конкретному ребёнку нажимает только подтверждённый родитель этого ребёнка.
-        if payload.startswith(("ticket:", "reason:", "change:", "back:", "paper:", "consent:", "terms:")):
+        if payload.startswith(("ticket:", "reason:", "change:", "back:", "paper:", "consent:", "terms:",
+                               "switch:", "swreason:")):
             try:
                 parts = payload.split(":")
                 student_scope = int(parts[3] if payload.startswith("terms:") else parts[2])
@@ -421,21 +425,48 @@ class BotService:
 
         if payload.startswith("change:"):
             _, exc_id_s, student_id_s = payload.split(":", 2)
+            exc_id_i, student_id_i = int(exc_id_s), int(student_id_s)
             with Session(engine) as session:
-                excursion = session.get(Excursion, int(exc_id_s))
-                if not excursion:
+                excursion = session.get(Excursion, exc_id_i)
+                participant = services.get_participant(session, exc_id_i, student_id_i)
+                student = session.get(Student, student_id_i)
+                if not (excursion and participant):
                     await self.client.answer_callback(callback_id, notification="Выезд не найден.")
                     return
-                try:
-                    participant, _, msg = services.reset_consent(
-                        session, excursion, student_id=int(student_id_s), user_id=user_id, source="bot",
-                    )
-                except ValueError:
-                    await self.client.answer_callback(callback_id, notification="Выезд не найден.")
+                if not services.can_change_answer(session, participant, excursion, user_id):
+                    await self.client.answer_callback(
+                        callback_id, notification="Ответ уже нельзя изменить — позвоните классному руководителю.")
                     return
-                student = session.get(Student, int(student_id_s))
-                text, keyboard = self._parent_card(excursion, student.full_name if student else "", participant)
-            await self.client.answer_callback(callback_id, text=text, attachments=keyboard, notification=msg)
+                name = first_name(student.full_name) if student else "ребёнок"
+                now = (f"Сейчас: {name} идёт на выезд." if participant.consent_status == ConsentStatus.APPROVED
+                       else f"Сейчас: {name} не пойдёт.")
+            await self.client.answer_callback(callback_id, text=f"{now}\nВыберите новый ответ:", attachments=[
+                inline_keyboard([
+                    [callback_button(f"✅ Да, {name} пойдёт", f"switch:{exc_id_i}:{student_id_i}:APPROVED")],
+                    [callback_button(f"Нет, {name} не пойдёт", f"switch:{exc_id_i}:{student_id_i}:REJECTED")],
+                    [callback_button("← Оставить как есть", f"back:{exc_id_i}:{student_id_i}")],
+                ])])
+            return
+
+        if payload.startswith(("switch:", "swreason:")):
+            kind, exc_id_s, student_id_s, value = payload.split(":", 3)
+            exc_id_i, student_id_i = int(exc_id_s), int(student_id_s)
+            if kind == "switch" and value == "REJECTED":
+                with Session(engine) as session:
+                    student = session.get(Student, student_id_i)
+                child = first_name(student.full_name) if student else "ребёнок"
+                await self.client.answer_callback(
+                    callback_id,
+                    text=f"Почему {child} не пойдёт?\nУчитель увидит только выбранный вариант. Подробности не нужны.",
+                    attachments=[inline_keyboard([
+                        [callback_button(label, f"swreason:{exc_id_i}:{student_id_i}:{code}")]
+                        for code, label in REJECT_REASONS.items()
+                    ] + [[callback_button("← Оставить как есть", f"back:{exc_id_i}:{student_id_i}")]])],
+                )
+                return
+            decision = "APPROVED" if kind == "switch" else "REJECTED"
+            reason = None if kind == "switch" else REJECT_REASONS.get(value, "Другая причина")
+            await self._switch_answer(callback_id, user_id, exc_id_i, student_id_i, decision, reason)
             return
 
         if payload.startswith("back:"):
@@ -511,6 +542,28 @@ class BotService:
             return
         await self._apply_bot_consent(callback_id, user_id, exc_id_i, student_id_i, decision, None)
 
+    async def _switch_answer(self, callback_id: str, user_id: int | None, exc_id: int, student_id: int,
+                             decision: str, reason: str | None) -> None:
+        """Новый ответ вместо прежнего: прежний действует, пока новый не записан."""
+        with Session(engine) as session:
+            excursion = session.get(Excursion, exc_id)
+            participant = services.get_participant(session, exc_id, student_id)
+            student = session.get(Student, student_id)
+            if not (excursion and participant):
+                await self.client.answer_callback(callback_id, notification="Выезд не найден.")
+                return
+            same = participant.consent_status.value == decision and (
+                decision == "APPROVED" or participant.rejection_reason == reason)
+            if not same:
+                participant, changed, msg = services.reset_consent(
+                    session, excursion, student_id=student_id, user_id=user_id, source="bot")
+            if same or not changed:
+                text, keyboard = self._parent_card(excursion, student.full_name if student else "", participant)
+                await self.client.answer_callback(callback_id, text=text, attachments=keyboard,
+                                                  notification="Ответ не изменился" if same else msg)
+                return
+        await self._apply_bot_consent(callback_id, user_id, exc_id, student_id, decision, reason)
+
     @staticmethod
     def _is_linked_parent(user_id: int | None, student_id: int) -> bool:
         if not user_id:
@@ -556,9 +609,13 @@ class BotService:
         with Session(engine) as session:
             excursion = session.get(Excursion, exc_id)
             klass = session.get(SchoolClass, excursion.class_id) if excursion else None
+            student = session.get(Student, student_id)
         school = (klass.school_name if klass else "") or "школа"
+        child = first_name(student.full_name) if student else "ребёнок"
+        answer = f"Да, {child} пойдёт" if decision == "APPROVED" else f"Нет, {child} не пойдёт"
         if step == 1:
             text = "\n".join([
+                f"Ваш ответ «{answer}» ещё не отправлен — осталось 2 нажатия.",
                 "Один раз перед первым ответом. Шаг 1 из 2 — соглашение об электронной подписи.",
                 "",
                 f"{school} и я, законный представитель ученика, договорились:",
@@ -583,7 +640,7 @@ class BotService:
                 "ClassGo, сообщения идут через MAX, хранение — в России.",
                 "Срок: до конца учебного года или до отзыва — в приложении ClassGo или заявлением в школу.",
             ])
-            accept = callback_button("✅ Даю согласие", f"terms:2:{exc_id}:{student_id}:{decision}")
+            accept = callback_button("✅ Даю согласие и отправляю ответ", f"terms:2:{exc_id}:{student_id}:{decision}")
             decline = callback_button("Не даю — отвечу на бумаге", f"paper:{exc_id}:{student_id}")
         await self.client.answer_callback(callback_id, text=text, attachments=[inline_keyboard([
             [accept], [decline], [callback_button("← Назад", f"back:{exc_id}:{student_id}")],
@@ -658,6 +715,9 @@ class BotService:
             if not excursion:
                 return 0
             now = timeutil.now_local(excursion.timezone).strftime("%H:%M")
+            klass = session.get(SchoolClass, excursion.class_id)
+            teacher = (klass.teacher_name if klass else "") or "классный руководитель"
+            call = f"{teacher}, {klass.teacher_phone}" if klass and klass.teacher_phone else teacher
             for student, parent, part in self._going_parents(session, excursion):
                 if part.consent_status != ConsentStatus.APPROVED:
                     continue
@@ -665,16 +725,16 @@ class BotService:
                 if kind == "departed":
                     if part.present is False:
                         came = "пришла" if is_female(student.full_name) else "пришёл"
-                        text = (f"{quoted(excursion.title)}: группа выехала в {now}, а {name} не {came} на сбор. "
-                                "Позвоните, пожалуйста, классному руководителю.")
+                        text = (f"{name} не {came} на сбор, группа выехала в {now} — {quoted(excursion.title)}.\n"
+                                f"Если всё в порядке, просто сообщите учителю: {call}.")
                     elif part.present is True:
-                        text = f"{quoted(excursion.title)}: группа выехала в {now}. {name} с классом."
+                        text = f"{name} с классом: группа выехала в {now} — {quoted(excursion.title)}."
                     else:
-                        text = f"{quoted(excursion.title)}: группа выехала в {now}."
+                        text = f"Группа выехала в {now} — {quoted(excursion.title)}."
                 else:
                     if part.present is False:
                         continue
-                    text = f"{quoted(excursion.title)}: группа вернулась в {now}. Можно встречать {name}."
+                    text = f"Группа вернулась в {now} — {quoted(excursion.title)}. {name} с классом, можно встречать."
                 messages.append((parent.max_user_id, text))
         sent = 0
         for user_id, text in messages:
@@ -691,10 +751,11 @@ class BotService:
             for student, parent, part in self._going_parents(session, excursion):
                 if part.consent_status == ConsentStatus.REJECTED:
                     continue
+                lessons = (f"{first_name(student.full_name)} учится по расписанию. "
+                           if excursion.event_date and excursion.event_date.weekday() < 5 else "")
                 messages.append((parent.max_user_id,
-                                 f"Выезд {quoted(excursion.title)} ({human_date(excursion.event_date)}) отменён. "
-                                 f"{first_name(student.full_name)} остаётся на уроках по расписанию. "
-                                 "Если вы купили билет — спросите классного руководителя про возврат."))
+                                 f"Отменён выезд {quoted(excursion.title)}, {human_date(excursion.event_date)}. "
+                                 f"{lessons}Если вы уже купили билет — вернуть его можно там, где покупали."))
         sent = 0
         for user_id, text in messages:
             if await self.client.send_message(user_id=user_id, text=text) is not None:

@@ -39,7 +39,8 @@ export default function NewClass() {
   const students = useMemo(() => parseLines(text), [text]);
   const withPhone = students.filter((s) => s.parent_phone).length;
   const dirty = Boolean(grade || text || file);
-  const ready = grade.trim() && (mode === "paste" ? students.length > 0 : file);
+  const phoneOk = phone.replace(/\D/g, "").length >= 10;
+  const ready = grade.trim() && phoneOk && (mode === "paste" ? students.length > 0 : file);
 
   useEffect(() => {
     setClosingConfirmation(dirty);
@@ -117,7 +118,8 @@ export default function NewClass() {
           <Field label="Классный руководитель" hint="Попадёт в приказ как ответственный за группу.">
             <input className="cg-input" value={teacher} placeholder="Фамилия Имя Отчество" onChange={(e) => setTeacher(e.target.value)} />
           </Field>
-          <Field label="Ваш телефон для родителей" hint="Необязательно. Покажем в приглашении — для вопросов родителей.">
+          <Field label="Ваш телефон для родителей"
+            hint="Покажем в приглашении. Если ребёнок не пришёл на сбор, родитель сразу сможет позвонить.">
             <input className="cg-input" type="tel" inputMode="tel" autoComplete="tel" value={phone} placeholder="+7 900 000-00-00"
               onChange={(e) => setPhone(e.target.value)} />
           </Field>

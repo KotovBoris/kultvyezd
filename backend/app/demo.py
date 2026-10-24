@@ -87,6 +87,46 @@ _EXTRA_KIDS: list[str] = [
     "Тихонов Лев Максимович", "Фазлыев Карим Азатович", "Хабибуллина Эмилия Ринатовна",
     "Шарипов Роберт Тимурович", "Юсупова Ясмина Ильнуровна",
 ]
+_SURNAMES = ["Зайцев", "Валиев", "Орлов", "Гарипов", "Соколов", "Закиров", "Морозов", "Латыпов", "Павлов", "Нуриев"]
+_BOYS = ["Артём", "Марк", "Тимофей", "Даниил", "Рамиль", "Ильдар", "Максим", "Руслан", "Арсений", "Булат"]
+_GIRLS = ["Алиса", "Дарья", "Милана", "Лейла", "Варвара", "София", "Алсу", "Ксения", "Диляра", "Ульяна"]
+
+
+def _spare_names():
+    yield from _EXTRA_KIDS
+    for i, surname in enumerate(_SURNAMES):
+        for j in range(len(_BOYS)):
+            yield f"{surname} {_BOYS[(i + j) % len(_BOYS)]}"
+            yield f"{surname}а {_GIRLS[(i + j) % len(_GIRLS)]}"
+
+
+def active_trip(session: Session, klass: SchoolClass) -> Excursion | None:
+    """Выезд, на который сейчас отвечают в демо-классе: последний не отменённый и не начавшийся."""
+    for exc in session.exec(select(Excursion).where(Excursion.class_id == klass.id, Excursion.cancelled == False)  # noqa: E712
+                            .order_by(Excursion.id.desc())).all():
+        if not services.trip_started(exc):
+            return exc
+    return None
+
+
+def retire_previous_trips(session: Session, klass: SchoolClass, keep_id: int) -> int:
+    """Новый выезд в демо-классе заменяет прежний пример: тот закрывается без рассылки,
+    чтобы у гостя из зала было одно приглашение, а не два."""
+    retired = 0
+    for exc in session.exec(select(Excursion).where(Excursion.class_id == klass.id, Excursion.id != keep_id,
+                                                    Excursion.cancelled == False)).all():  # noqa: E712
+        if exc.departed_at:
+            continue
+        exc.cancelled = True
+        exc.status = ExcursionStatus.CLOSED
+        session.add(exc)
+        for answer in session.exec(select(DemoAnswer).where(DemoAnswer.excursion_id == exc.id,
+                                                            DemoAnswer.done == False)).all():  # noqa: E712
+            answer.done = True
+            session.add(answer)
+        retired += 1
+    session.commit()
+    return retired
 
 
 def sandbox_class(session: Session, user_id: int) -> SchoolClass | None:
@@ -226,7 +266,8 @@ def sandbox_info(session: Session, klass: SchoolClass, user_id: int, created: bo
         "class_title": klass.title,
         "child_student_id": child.id if child else None,
         "child_name": child.full_name if child else None,
-        "excursion_ids": [e.id for e in excursions],
+        # Сначала действующие, новые первыми: [0] — выезд, на который сейчас отвечают.
+        "excursion_ids": [e.id for e in sorted(excursions, key=lambda e: (e.cancelled, -e.id))],
     }
 
 
@@ -277,23 +318,26 @@ def adopt_virtual_child(session: Session, klass: SchoolClass, user_id: int, name
     if mine:
         return session.get(Student, mine.student_id)
     students = session.exec(select(Student).where(Student.class_id == klass.id).order_by(Student.full_name)).all()
-    trip_ids = [e.id for e in session.exec(select(Excursion).where(Excursion.class_id == klass.id)).all()]
-
-    def pending_count(sid: int) -> int:
-        return len([p for p in session.exec(select(ExcursionParticipant).where(
-            ExcursionParticipant.student_id == sid, ExcursionParticipant.excursion_id.in_(trip_ids or [-1]))).all()
-            if p.consent_status == ConsentStatus.PENDING])
+    trip = active_trip(session, klass)
+    scheduled = {a.student_id for a in session.exec(select(DemoAnswer).where(
+        DemoAnswer.excursion_id == (trip.id if trip else -1), DemoAnswer.done == False)).all()}  # noqa: E712
 
     candidates = []
     for st in students:
         parents = services.student_parents(session, st.id)
-        if parents and all(p.is_virtual for p in parents):
-            candidates.append((-pending_count(st.id), st.full_name, st, parents[0]))
+        if not parents or not all(p.is_virtual for p in parents):
+            continue
+        if trip:
+            part = services.get_participant(session, trip.id, st.id)
+            if not part or part.consent_status != ConsentStatus.PENDING:
+                continue
+        # Сначала «молчунов»: запланированные ответы виртуальных родителей пусть остаются в демо.
+        candidates.append((st.id in scheduled, st.full_name, st, parents[0]))
     if not candidates:
         extra = _add_extra_kid(session, klass, {st.full_name for st in students})
         if not extra:
             return None
-        candidates.append((0, extra[0].full_name, extra[0], extra[1]))
+        candidates.append((False, extra[0].full_name, extra[0], extra[1]))
     candidates.sort(key=lambda c: (c[0], c[1]))
     _, _, student, parent = candidates[0]
     parent.max_user_id = user_id
@@ -387,7 +431,7 @@ def process_due_answers(session: Session, now: datetime | None = None) -> set[in
 
 
 def _add_extra_kid(session: Session, klass: SchoolClass, taken: set[str]) -> tuple[Student, ParentContact] | None:
-    name = next((n for n in _EXTRA_KIDS if n not in taken), None)
+    name = next((n for n in _spare_names() if n not in taken), None)
     if not name:
         return None
     student = Student(class_id=klass.id, full_name=name, birth_date=date(2013, 6, 1))
@@ -397,7 +441,8 @@ def _add_extra_kid(session: Session, klass: SchoolClass, taken: set[str]) -> tup
     parent = ParentContact(student_id=student.id, full_name="Родитель (демо)", phone_number="",
                            role="Родитель", is_virtual=True, confirmed=True)
     session.add(parent)
-    for exc in session.exec(select(Excursion).where(Excursion.class_id == klass.id)).all():
+    for exc in session.exec(select(Excursion).where(Excursion.class_id == klass.id,
+                                                    Excursion.cancelled == False)).all():  # noqa: E712
         session.add(ExcursionParticipant(
             excursion_id=exc.id, student_id=student.id, consent_status=ConsentStatus.PENDING,
             ticket_status=TicketStatus.WAITING_PAYMENT if exc.ticket_price > 0 else TicketStatus.NOT_REQUIRED,

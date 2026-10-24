@@ -1,6 +1,6 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import qrcode from "qrcode-generator";
-import { Spinner } from "@maxhub/max-ui";
+import { Button, Spinner } from "@maxhub/max-ui";
 import type { TripStats } from "./api";
 import { dayParts } from "./format";
 import { useAppState } from "./store";
@@ -381,6 +381,43 @@ export function Sheet({
         <div className="cg-sheet-body">{children}</div>
       </div>
     </div>
+  );
+}
+
+/** Подтверждение действия, которое нельзя тихо отменить: что произойдёт — словами, и две кнопки. */
+export function Confirm({
+  open,
+  title,
+  yes,
+  no = "Отмена",
+  danger = false,
+  busy = false,
+  onYes,
+  onClose,
+  children,
+}: {
+  open: boolean;
+  title: string;
+  yes: string;
+  no?: string;
+  danger?: boolean;
+  busy?: boolean;
+  onYes: () => void;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Sheet open={open} title={title} onClose={onClose}>
+      <div className="cg-confirm-text">{children}</div>
+      <div className="cg-stack">
+        <Button size="large" stretched variant={danger ? "destructive" : "primary"} loading={busy} onClick={onYes}>
+          {yes}
+        </Button>
+        <Button size="large" stretched variant="secondary" disabled={busy} onClick={onClose}>
+          {no}
+        </Button>
+      </div>
+    </Sheet>
   );
 }
 

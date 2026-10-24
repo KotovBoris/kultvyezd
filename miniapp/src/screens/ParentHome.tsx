@@ -5,7 +5,7 @@ import { refreshMe, startDemo } from "../App";
 import { dayShort, firstName, initials, plural } from "../format";
 import { copyText, isInsideMax, requestContact, shareToChat } from "../max";
 import { errorText, push, setState, toast, useAppState } from "../store";
-import { Avatar, Card, Empty, Hero, Icon, Notice, Page, QrCode, Section, Sheet, SkeletonList, Status, Tag } from "../ui";
+import { Avatar, Card, Confirm, Empty, Hero, Icon, Notice, Page, QrCode, Section, Sheet, SkeletonList, Status, Tag } from "../ui";
 import { ParentTripView } from "./ParentTrip";
 import { Terms } from "./Terms";
 
@@ -202,13 +202,10 @@ function RevokeLink() {
   const [busy, setBusy] = useState(false);
 
   async function revoke() {
-    if (!confirming) {
-      setConfirming(true);
-      return;
-    }
     setBusy(true);
     try {
       await api.revoke();
+      setConfirming(false);
       await refreshMe("parent");
       toast("Согласие отозвано. Бумажный бланк — у классного руководителя.", "info");
     } catch (e) {
@@ -219,9 +216,17 @@ function RevokeLink() {
   }
 
   return (
-    <button type="button" className="cg-link cg-danger cg-center-link" disabled={busy} onClick={() => void revoke()}>
-      {confirming ? "Нажмите ещё раз, чтобы отозвать" : "Отозвать согласие"}
-    </button>
+    <>
+      <button type="button" className="cg-link cg-danger cg-center-link" onClick={() => setConfirming(true)}>
+        Отозвать согласие
+      </button>
+      <Confirm open={confirming} title="Отозвать согласие?" yes="Да, отозвать" no="Не отзывать" danger busy={busy}
+        onYes={() => void revoke()} onClose={() => setConfirming(false)}>
+        <p>ClassGo отключит ваш MAX от класса: приглашения сюда приходить перестанут.</p>
+        <p>Ответы, которые вы уже дали, останутся в реестре школы. Новые — на бумажном бланке у классного руководителя.</p>
+        <p className="cg-muted">Передумаете — откройте ссылку класса ещё раз.</p>
+      </Confirm>
+    </>
   );
 }
 
@@ -312,7 +317,7 @@ function NotificationsToggle({ children, onChanged }: { children: ParentChild[];
     setBusy(true);
     try {
       await api.setNotifications(me.user_id, next);
-      toast(next ? "Напоминания включены." : "Напоминания выключены. Приглашения останутся здесь.");
+      toast(next ? "Напоминания включены." : "Напоминания выключены. Приглашения на выезды всё равно придут.");
       onChanged();
     } catch (e) {
       toast(errorText(e), "error");
@@ -325,7 +330,7 @@ function NotificationsToggle({ children, onChanged }: { children: ParentChild[];
     <Card className="cg-setting">
       <div>
         <b>Напоминания в чате MAX</b>
-        <span className="cg-muted">Только если вы не ответили. С 21:00 до 08:00 не пишем.</span>
+        <span className="cg-muted">Если вы ещё не ответили. С 21 до 8 не пишем. Приглашения на выезды приходят всегда.</span>
       </div>
       <Switch checked={on} disabled={busy} onChange={(e) => void toggle(e.target.checked)} aria-label="Напоминания" />
     </Card>

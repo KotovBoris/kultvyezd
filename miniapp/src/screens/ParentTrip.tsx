@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@maxhub/max-ui";
 import { api, type ParentChild, type ParentTrip as Trip } from "../api";
-import { dayLong, deadlineText, firstName, formatPhone, isPast, money, stamp } from "../format";
+import { dayLong, deadlineText, firstName, formatPhone, isPast, money, parseDay, stamp } from "../format";
 import { haptic, openLink, telHref } from "../max";
 import { errorText, toast, useAppState } from "../store";
 import { Card, Hero, Icon, Loader, Notice, Page, Sheet, Tag } from "../ui";
@@ -31,6 +31,7 @@ export function ParentTripView({
 }) {
   const [busy, setBusy] = useState(false);
   const [askReason, setAskReason] = useState(false);
+  const [changing, setChanging] = useState(false);
   const name = firstName(child.student_name);
   const pending = trip.consent_status === "PENDING";
   const late = isPast(trip.deadline);
@@ -39,6 +40,23 @@ export function ParentTripView({
   async function answer(status: "APPROVED" | "REJECTED", reason?: string) {
     setBusy(true);
     try {
+      if (!pending) {
+        // Новый ответ вместо прежнего: прежний действует, пока родитель не выбрал другой.
+        if (status === trip.consent_status && (status === "APPROVED" || reason === trip.rejection_reason)) {
+          toast("Ответ не изменился.", "info");
+          setChanging(false);
+          setAskReason(false);
+          return;
+        }
+        const reset = await api.resetConsent(trip.excursion_id, child.student_id);
+        if (!reset.changed) {
+          toast(reset.message, "info");
+          setChanging(false);
+          setAskReason(false);
+          await onChanged();
+          return;
+        }
+      }
       const r = await api.consent(trip.excursion_id, {
         student_id: child.student_id,
         status,
@@ -48,7 +66,9 @@ export function ParentTripView({
       });
       if (r.changed) haptic.ok();
       else toast(r.message, "info");
+      if (r.changed && !pending) toast("Ответ изменён. Учитель видит новый.");
       setAskReason(false);
+      setChanging(false);
       await onChanged();
     } catch (e) {
       toast(errorText(e), "error");
@@ -57,18 +77,10 @@ export function ParentTripView({
     }
   }
 
-  async function change() {
-    setBusy(true);
-    try {
-      const r = await api.resetConsent(trip.excursion_id, child.student_id);
-      toast(r.changed ? "Можно ответить заново." : r.message, r.changed ? "ok" : "info");
-      await onChanged();
-    } catch (e) {
-      toast(errorText(e), "error");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const weekday = (() => {
+    const d = parseDay(trip.event_date);
+    return Boolean(d && d.getDay() > 0 && d.getDay() < 6);
+  })();
 
   return (
     <Card className={`cg-ptrip ${pending && !trip.started && !trip.cancelled ? "pending" : ""}`}>
@@ -115,8 +127,8 @@ export function ParentTripView({
 
       {trip.cancelled && (
         <Notice tone="warn" icon="info" title="Выезд отменён">
-          {name} остаётся на уроках по расписанию. Если вы купили билет — спросите классного руководителя про
-          возврат.
+          {weekday ? `${name} учится по расписанию. ` : ""}Если вы уже купили билет — вернуть его можно там, где
+          покупали.
         </Notice>
       )}
 
@@ -190,7 +202,7 @@ export function ParentTripView({
       {((!pending && trip.can_change) || tel) && (
         <div className="cg-ptrip-links">
           {!pending && trip.can_change && (
-            <button type="button" className="cg-link" disabled={busy} onClick={() => void change()}>
+            <button type="button" className="cg-link" disabled={busy} onClick={() => setChanging(true)}>
               Изменить ответ
             </button>
           )}
@@ -201,6 +213,27 @@ export function ParentTripView({
           )}
         </div>
       )}
+
+      <Sheet open={changing && !askReason} title="Изменить ответ" onClose={() => setChanging(false)}>
+        <p className="cg-muted">
+          Сейчас: {trip.consent_status === "APPROVED" ? `${name} идёт на выезд` : `${name} не пойдёт`}. Пока вы не
+          выберете новый ответ, действует прежний.
+        </p>
+        <div className="cg-stack">
+          {trip.consent_status !== "APPROVED" && (
+            <Button size="large" stretched loading={busy} onClick={() => void answer("APPROVED")}
+              iconBefore={<Icon name="check" size={22} />}>
+              Да, {name} пойдёт
+            </Button>
+          )}
+          <Button size="large" stretched variant="secondary" disabled={busy} onClick={() => setAskReason(true)}>
+            {trip.consent_status === "REJECTED" ? "Указать другую причину" : `Нет, ${name} не пойдёт`}
+          </Button>
+          <Button size="large" stretched variant="secondary" disabled={busy} onClick={() => setChanging(false)}>
+            Оставить как есть
+          </Button>
+        </div>
+      </Sheet>
 
       <Sheet open={askReason} title={`Почему ${name} не пойдёт?`} onClose={() => setAskReason(false)}>
         <p className="cg-muted">Учитель увидит только выбранный вариант. Подробности не нужны.</p>

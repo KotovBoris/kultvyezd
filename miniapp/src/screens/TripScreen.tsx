@@ -7,6 +7,7 @@ import { errorText, toast } from "../store";
 import {
   Avatar,
   Card,
+  Confirm,
   Hero,
   Icon,
   Loader,
@@ -397,6 +398,7 @@ function StudentSheet({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [paper, setPaper] = useState<"APPROVED" | "REJECTED" | null>(null);
   if (!row) return <Sheet open={false} title="" onClose={onClose}>{null}</Sheet>;
   const tel = telHref(row.parent_phone);
 
@@ -412,6 +414,7 @@ function StudentSheet({
         reason: status === "REJECTED" ? "Ответ на бумаге" : null,
       });
       toast(status === "APPROVED" ? "Отмечено: отпускают." : "Отмечено: не сможет.");
+      setPaper(null);
       onChanged();
       onClose();
     } catch (e) {
@@ -487,11 +490,23 @@ function StudentSheet({
             не заменяют.
           </p>
           <div className="cg-row-buttons">
-            <Button size="medium" disabled={busy} onClick={() => void mark("APPROVED")}>Бланк: отпускают</Button>
-            <Button size="medium" variant="secondary" disabled={busy} onClick={() => void mark("REJECTED")}>
+            <Button size="medium" disabled={busy} onClick={() => setPaper("APPROVED")}>Бланк: отпускают</Button>
+            <Button size="medium" variant="secondary" disabled={busy} onClick={() => setPaper("REJECTED")}>
               Бланк: не сможет
             </Button>
           </div>
+          {paper && (
+            <div className="cg-inline-confirm">
+              <p>
+                {paper === "APPROVED" ? "Отпускают" : "Не сможет"} — по бумажному бланку с подписью родителя.
+                Бланк сохраните: в реестре будет пометка «бумажное согласие».
+              </p>
+              <div className="cg-row-buttons">
+                <Button size="medium" loading={busy} onClick={() => void mark(paper)}>Да, отметить</Button>
+                <Button size="medium" variant="secondary" disabled={busy} onClick={() => setPaper(null)}>Отмена</Button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <button type="button" className="cg-link cg-danger" disabled={busy} onClick={() => void reset()}>
@@ -523,6 +538,7 @@ function TripDay({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [ask, setAsk] = useState<"departed" | "returned" | null>(null);
   const present = going.filter((p) => p.present === true).length;
   const absent = going.filter((p) => p.present === false).length;
   const unmarked = going.length - present - absent;
@@ -559,6 +575,7 @@ function TripDay({
       haptic.ok();
       const head = kind === "departed" ? "Отмечено: группа выехала." : "Отмечено: группа вернулась.";
       toast(r.notified ? `${head} Написали родителям в MAX: ${r.notified}.` : head);
+      setAsk(null);
       onChanged();
     } catch (e) {
       toast(errorText(e), "error");
@@ -584,15 +601,30 @@ function TripDay({
         </Button>
         <div className="cg-row-buttons">
           <Button size="medium" variant={departedAt ? "secondary" : "primary"} loading={busy === "departed"}
-            disabled={Boolean(departedAt)} onClick={() => void milestone("departed")}>
+            disabled={Boolean(departedAt)} onClick={() => setAsk("departed")}>
             {departedAt ? `Выехали в ${timeOf(departedAt, tz)}` : "Группа выехала"}
           </Button>
           <Button size="medium" variant="secondary" loading={busy === "returned"}
-            disabled={!departedAt || Boolean(returnedAt)} onClick={() => void milestone("returned")}>
+            disabled={!departedAt || Boolean(returnedAt)} onClick={() => setAsk("returned")}>
             {returnedAt ? `Вернулись в ${timeOf(returnedAt, tz)}` : "Группа вернулась"}
           </Button>
         </div>
       </Card>
+
+      <Confirm open={ask === "departed"} title="Группа выехала?" yes="Да, сообщить родителям" busy={busy === "departed"}
+        onYes={() => void milestone("departed")} onClose={() => setAsk(null)}>
+        <p>Родители {going.length} {plural(going.length, "ученика", "учеников", "учеников")} получат сообщение в MAX.</p>
+        {absent > 0 && <p>Родителям {absent} отсутствующих напишем, что ребёнок не пришёл на сбор.</p>}
+        {unmarked > 0 && (
+          <p className="cg-muted">
+            Не отмечены: {unmarked}. Их родители получат просто «Группа выехала». Можно сначала провести перекличку.
+          </p>
+        )}
+      </Confirm>
+      <Confirm open={ask === "returned"} title="Группа вернулась?" yes="Да, сообщить родителям" busy={busy === "returned"}
+        onYes={() => void milestone("returned")} onClose={() => setAsk(null)}>
+        <p>Родители {going.length - absent} {plural(going.length - absent, "ученика", "учеников", "учеников")} получат: группа вернулась, можно встречать.</p>
+      </Confirm>
 
       <Sheet open={open} title="Перекличка" onClose={() => setOpen(false)}>
         <p className="cg-muted cg-small">
